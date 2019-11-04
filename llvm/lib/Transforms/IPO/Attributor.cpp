@@ -3086,9 +3086,36 @@ struct AADereferenceableCallSiteReturned final
 
 // ------------------------ Align Argument Attribute ------------------------
 
-static int64_t getKnownAlignForUse(Attributor &A, AbstractAttribute &QueryingAA,
-                                   Value &AssociatedValue, const Use *U,
-                                   const Instruction *I, bool &TrackUse) {
+static unsigned int getKnownAlignForUse(Attributor &A,
+                                        AbstractAttribute &QueryingAA,
+                                        Value &AssociatedValue, const Use *U,
+                                        const Instruction *I, bool &TrackUse) {
+  const DataLayout &DL = A.getInfoCache().getDL();
+  if (ImmutableCallSite ICS = ImmutableCallSite(I)) {
+    if (ICS.isBundleOperand(U) || ICS.isCallee(U))
+      return 0;
+
+    unsigned ArgNo = ICS.getArgumentNo(U);
+    IRPosition IRP = IRPosition::callsite_argument(ICS, ArgNo);
+    // As long as we only use known information there is no need to track
+    // dependences here.
+    auto &AlignAA = A.getAAFor<AAAlign>(QueryingAA, IRP,
+                                        /* TrackDependence */ false);
+    return AlignAA.getKnownAlign();
+  }
+  // We need to follow common pointer manipulation uses to the accesses they
+  // feed into.
+  // TODO: Consider gep instruction
+  if (isa<CastInst>(I)) {
+    TrackUse = true;
+    return 0;
+  }
+  // If the use
+  if (auto *SI = dyn_cast<StoreInst>(I)) {
+    return SI->getAlignment();
+  } else if (auto *LI = dyn_cast<LoadInst>(I)){
+    return LI->getAlignment();
+  }
   return 0;
 }
 struct AAAlignImpl : AAAlign {
@@ -3151,6 +3178,10 @@ struct AAAlignImpl : AAAlign {
   /// See AAFromMustBeExecutedContext
   bool followUse(Attributor &A, const Use *U, const Instruction *I) {
     bool TrackUse = false;
+
+    unsigned int KnownAlign = getKnownAlignForUse(A, *this, getAssociatedValue(), U, I, TrackUse);
+    takeKnownMaximum(KnownAlign);
+
     return TrackUse;
   }
 
