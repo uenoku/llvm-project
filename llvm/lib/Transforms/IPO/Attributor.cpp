@@ -4679,7 +4679,97 @@ void AAMemoryBehaviorFloating::analyzeUseIn(Attributor &A, const Use *U,
   if (UserI->mayWriteToMemory())
     removeAssumedBits(NO_WRITES);
 }
+/// ------------------ Value Range Attribute ----------------------------
+struct AAValueRangeImpl : AAValueRange {
+  AAValueRangeImpl(const IRPosition &IRP) : AAValueRange(IRP) {}
 
+  /// See AbstractAttribute::getAsStr().
+  const std::string getAsStr() const override {
+    return getAssumed() ? (getKnown() ? "has-range" : "maybe-has-range")
+                        : "unknown";
+  }
+  ChangeStatus updateImpl(Attributor &A) override {
+    return indicatePessimisticFixpoint();
+  }
+  Optional<Value *> getAssumedRange(Attributor &A) const override {
+    return nullptr;
+  }
+
+  /// See AbstractAttribute::trackStatistics()
+  void trackStatistics() const override {}
+
+  void initialize(Attributor &A) override {}
+};
+
+struct AAValueRangeArgument final : AAValueRangeImpl {
+  AAValueRangeArgument(const IRPosition &IRP) : AAValueRangeImpl(IRP) {}
+
+  Optional<Value *> getAssumedRange(Attributor &A) const override {
+    return nullptr;
+  }
+
+  /// See AbstractAttribute::trackStatistics()
+  void trackStatistics() const override {
+    STATS_DECLTRACK_ARG_ATTR(value_range)
+  }
+};
+
+struct AAValueRangeReturned : AAValueRangeImpl {
+  AAValueRangeReturned(const IRPosition &IRP) : AAValueRangeImpl(IRP) {}
+
+  /// See AbstractAttribute::trackStatistics()
+  void trackStatistics() const override {
+    STATS_DECLTRACK_FNRET_ATTR(value_simplify)
+  }
+};
+
+struct AAValueRangeFloating : AAValueRangeImpl {
+  AAValueRangeFloating(const IRPosition &IRP) : AAValueRangeImpl(IRP) {}
+
+  /// See AbstractAttribute::trackStatistics()
+  void trackStatistics() const override {
+    STATS_DECLTRACK_FLOATING_ATTR(value_simplify)
+  }
+};
+
+struct AAValueRangeFunction : AAValueRangeImpl {
+  AAValueRangeFunction(const IRPosition &IRP) : AAValueRangeImpl(IRP) {}
+
+  /// See AbstractAttribute::initialize(...).
+  ChangeStatus updateImpl(Attributor &A) override {
+    llvm_unreachable(
+        "AAValueRange(Function|CallSite)::updateImpl will not be called");
+  }
+  /// See AbstractAttribute::trackStatistics()
+  void trackStatistics() const override {
+    STATS_DECLTRACK_FN_ATTR(value_simplify)
+  }
+};
+
+struct AAValueRangeCallSite : AAValueRangeFunction {
+  AAValueRangeCallSite(const IRPosition &IRP) : AAValueRangeFunction(IRP) {}
+  /// See AbstractAttribute::trackStatistics()
+  void trackStatistics() const override {
+    STATS_DECLTRACK_CS_ATTR(value_simplify)
+  }
+};
+
+struct AAValueRangeCallSiteReturned : AAValueRangeReturned {
+  AAValueRangeCallSiteReturned(const IRPosition &IRP)
+      : AAValueRangeReturned(IRP) {}
+
+  void trackStatistics() const override {
+    STATS_DECLTRACK_CSRET_ATTR(value_simplify)
+  }
+};
+struct AAValueRangeCallSiteArgument : AAValueRangeFloating {
+  AAValueRangeCallSiteArgument(const IRPosition &IRP)
+      : AAValueRangeFloating(IRP) {}
+
+  void trackStatistics() const override {
+    STATS_DECLTRACK_CSARG_ATTR(value_simplify)
+  }
+};
 /// ----------------------------------------------------------------------------
 ///                               Attributor
 /// ----------------------------------------------------------------------------
@@ -5652,6 +5742,7 @@ const char AANoCapture::ID = 0;
 const char AAValueSimplify::ID = 0;
 const char AAHeapToStack::ID = 0;
 const char AAMemoryBehavior::ID = 0;
+const char AAValueRange::ID = 0;
 
 // Macro magic to create the static generator function for attributes that
 // follow the naming scheme.
@@ -5757,6 +5848,7 @@ CREATE_VALUE_ABSTRACT_ATTRIBUTE_FOR_POSITION(AANoAlias)
 CREATE_VALUE_ABSTRACT_ATTRIBUTE_FOR_POSITION(AADereferenceable)
 CREATE_VALUE_ABSTRACT_ATTRIBUTE_FOR_POSITION(AAAlign)
 CREATE_VALUE_ABSTRACT_ATTRIBUTE_FOR_POSITION(AANoCapture)
+CREATE_VALUE_ABSTRACT_ATTRIBUTE_FOR_POSITION(AAValueRange)
 
 CREATE_ALL_ABSTRACT_ATTRIBUTE_FOR_POSITION(AAValueSimplify)
 CREATE_ALL_ABSTRACT_ATTRIBUTE_FOR_POSITION(AAIsDead)

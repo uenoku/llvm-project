@@ -2063,6 +2063,23 @@ struct AAMemoryBehavior
   static const char ID;
 };
 
+struct AAValueRange : public StateWrapper<BooleanState, AbstractAttribute>,
+                      public IRPosition {
+  AAValueRange(const IRPosition &IRP) : IRPosition(IRP) {}
+
+  /// Return an IR position, see struct IRPosition.
+  const IRPosition &getIRPosition() const { return *this; }
+
+  /// Return an assumed range if it is not clear yet, return Optional::NoneType.
+  virtual Optional<ConstantRange *> getAssumedRange(Attributor &A) const = 0;
+
+  /// Create an abstract attribute view for the position \p IRP.
+  static AAValueRange &createForPosition(const IRPosition &IRP, Attributor &A);
+
+  /// Unique ID (due to the unique address)
+  static const char ID;
+};
+
 } // end namespace llvm
 
 #endif // LLVM_TRANSFORMS_IPO_FUNCTIONATTRS_H
