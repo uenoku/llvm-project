@@ -2071,7 +2071,7 @@ struct AAValueRange : public StateWrapper<BooleanState, AbstractAttribute>,
   const IRPosition &getIRPosition() const { return *this; }
 
   /// Return an assumed range if it is not clear yet, return Optional::NoneType.
-  virtual Optional<ConstantRange *> getAssumedRange(Attributor &A) const = 0;
+  virtual ConstantRange * getAssumedRange(Attributor &A) const = 0;
 
   /// Create an abstract attribute view for the position \p IRP.
   static AAValueRange &createForPosition(const IRPosition &IRP, Attributor &A);

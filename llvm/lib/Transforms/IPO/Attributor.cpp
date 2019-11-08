@@ -4691,7 +4691,7 @@ struct AAValueRangeImpl : AAValueRange {
   ChangeStatus updateImpl(Attributor &A) override {
     return indicatePessimisticFixpoint();
   }
-  Optional<Value *> getAssumedRange(Attributor &A) const override {
+  ConstantRange * getAssumedRange(Attributor &A) const override {
     return nullptr;
   }
 
