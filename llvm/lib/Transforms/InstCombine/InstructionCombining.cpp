@@ -1724,8 +1724,11 @@ Instruction *InstCombiner::visitGetElementPtrInst(GetElementPtrInst &GEP) {
 
             // The first two arguments can vary for any GEP, the rest have to be
             // static for struct slots
-            if (J > 1 && CurTy->isStructTy())
-              return nullptr;
+            if (J > 1) {
+              assert(CurTy && "No current type?");
+              if (CurTy->isStructTy())
+                return nullptr;
+            }
 
             DI = J;
           } else {
@@ -3411,8 +3414,7 @@ static bool AddReachableCodeToWorklist(BasicBlock *BB, const DataLayout &DL,
       if (isInstructionTriviallyDead(Inst, TLI)) {
         ++NumDeadInst;
         LLVM_DEBUG(dbgs() << "IC: DCE: " << *Inst << '\n');
-        if (!salvageDebugInfo(*Inst))
-          replaceDbgUsesWithUndef(Inst);
+        salvageDebugInfoOrMarkUndef(*Inst);
         Inst->eraseFromParent();
         MadeIRChange = true;
         continue;
