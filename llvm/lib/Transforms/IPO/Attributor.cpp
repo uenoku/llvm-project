@@ -2513,12 +2513,14 @@ struct AAIsDeadFunction : public AAIsDead {
               CI->takeName(II);
               II->replaceAllUsesWith(CI);
 
-              // If this is a nounwind + mayreturn invoke we only remove the unwind edge.
-              // This is done by moving the invoke into a new and dead block and connecting
-              // the normal destination of the invoke with a branch that follows the call
-              // replacement we created above.
+              // If this is a nounwind + mayreturn invoke we only remove the
+              // unwind edge. This is done by moving the invoke into a new and
+              // dead block and connecting the normal destination of the invoke
+              // with a branch that follows the call replacement we created
+              // above.
               if (MayReturn) {
-                BasicBlock *NewDeadBB = SplitBlock(BB, II, nullptr, nullptr, nullptr, ".i2c");
+                BasicBlock *NewDeadBB =
+                    SplitBlock(BB, II, nullptr, nullptr, nullptr, ".i2c");
                 assert(isa<BranchInst>(BB->getTerminator()) &&
                        BB->getTerminator()->getNumSuccessors() == 1 &&
                        BB->getTerminator()->getSuccessor(0) == NewDeadBB);
@@ -3180,7 +3182,8 @@ struct AAAlignImpl : AAAlign {
   bool followUse(Attributor &A, const Use *U, const Instruction *I) {
     bool TrackUse = false;
 
-    unsigned int KnownAlign = getKnownAlignForUse(A, *this, getAssociatedValue(), U, I, TrackUse);
+    unsigned int KnownAlign =
+        getKnownAlignForUse(A, *this, getAssociatedValue(), U, I, TrackUse);
     takeKnownMaximum(KnownAlign);
 
     return TrackUse;
@@ -3876,14 +3879,14 @@ struct AAValueSimplifyArgument final : AAValueSimplifyImpl {
       // callback calls).
       Value *ArgOp = ACS.getCallArgOperand(getArgNo());
       if (!ArgOp)
-       return false;
+        return false;
       // We can only propagate thread independent values through callbacks.
       // This is different to direct/indirect call sites because for them we
       // know the thread executing the caller and callee is the same. For
       // callbacks this is not guaranteed, thus a thread dependent value could
       // be different for the caller and callee, making it invalid to propagate.
       if (ACS.isCallbackCall())
-        if (auto *C =dyn_cast<Constant>(ArgOp))
+        if (auto *C = dyn_cast<Constant>(ArgOp))
           if (C->isThreadDependent())
             return false;
       return checkAndUpdate(A, *this, *ArgOp, SimplifiedAssociatedValue);
@@ -4184,7 +4187,8 @@ ChangeStatus AAHeapToStackImpl::updateImpl(Attributor &A) {
         const auto &ArgNoFreeAA = A.getAAFor<AANoFree>(
             *this, IRPosition::callsite_argument(*CB, ArgNo));
 
-        if (!NoCaptureAA.isAssumedNoCapture() || !ArgNoFreeAA.isAssumedNoFree()) {
+        if (!NoCaptureAA.isAssumedNoCapture() ||
+            !ArgNoFreeAA.isAssumedNoFree()) {
           LLVM_DEBUG(dbgs() << "[H2S] Bad user: " << *UserI << "\n");
           ValidUsesOnly = false;
         }
@@ -4715,34 +4719,56 @@ void AAMemoryBehaviorFloating::analyzeUseIn(Attributor &A, const Use *U,
   if (UserI->mayWriteToMemory())
     removeAssumedBits(NO_WRITES);
 }
-/// ------------------ Value Range Attribute ----------------------------
-struct AAValueRangeImpl : AAValueRange {
-  AAValueRangeImpl(const IRPosition &IRP) : AAValueRange(IRP) {}
+/// ------------------ Value Constant Range Attribute
+/// ----------------------------
+struct AAValueConstantRangeImpl : AAValueConstantRange {
+  AAValueConstantRangeImpl(const IRPosition &IRP) : AAValueConstantRange(IRP) {}
 
   /// See AbstractAttribute::getAsStr().
   const std::string getAsStr() const override {
     return getAssumed() ? (getKnown() ? "has-range" : "maybe-has-range")
                         : "unknown";
   }
+  Optional<ConstantRange>
+  getAssumedConstantRange(Attributor &A) const override {
+    if (!getAssumed())
+      return ConstantRane::getFull(getAssociatedValue().getType()->getIntegerBitWidth());
+
+    return RangedAssociatedValue;
+  }
+
   ChangeStatus updateImpl(Attributor &A) override {
     return indicatePessimisticFixpoint();
   }
-  ConstantRange * getAssumedRange(Attributor &A) const override {
-    return nullptr;
+  ChangeStatus manifest(Attributor &A) override {
+    if (Instruction *I = dyn_cast<Instruction>(&getAssociatedValue())) {
+      if (auto *IT = dyn_cast<IntegerType>(I->getType())) {
+        Metadata *LowAndHigh[] = {
+            ConstantAsMetadata::get(
+                ConstantInt::get(IT, RangedAssociatedValue.getSignedMin())),
+            ConstantAsMetadata::get(
+                ConstantInt::get(IT, RangedAssociatedValue.getSignedMax()))};
+        I->setMetadata(LLVMContext::MD_range,
+                       MDNode::get(I->getContext(), LowAndHigh));
+      }
+    }
+    return ChangeStatus::UNCHANGED;
   }
 
   /// See AbstractAttribute::trackStatistics()
   void trackStatistics() const override {}
 
-  void initialize(Attributor &A) override {}
+  void initialize(Attributor &A) override {
+    assert(getAssociatedValue().getType()->isIntOrIntVectorTy() && "AAValueRangeConstant should be associcated with an integer value.");
+    RangedAssociatedValue = computeConstantRange(&getAssociatedValue());
+  }
+
+protected:
+  ConstantRange RangedAssociatedValue;
 };
 
-struct AAValueRangeArgument final : AAValueRangeImpl {
-  AAValueRangeArgument(const IRPosition &IRP) : AAValueRangeImpl(IRP) {}
-
-  Optional<Value *> getAssumedRange(Attributor &A) const override {
-    return nullptr;
-  }
+struct AAValueRangeArgument final : AAValueConstantRangeImpl {
+  AAValueRangeArgument(const IRPosition &IRP) : AAValueConstantRangeImpl(IRP) {}
 
   /// See AbstractAttribute::trackStatistics()
   void trackStatistics() const override {
@@ -4750,8 +4776,8 @@ struct AAValueRangeArgument final : AAValueRangeImpl {
   }
 };
 
-struct AAValueRangeReturned : AAValueRangeImpl {
-  AAValueRangeReturned(const IRPosition &IRP) : AAValueRangeImpl(IRP) {}
+struct AAValueRangeReturned : AAValueConstantRangeImpl {
+  AAValueRangeReturned(const IRPosition &IRP) : AAValueConstantRangeImpl(IRP) {}
 
   /// See AbstractAttribute::trackStatistics()
   void trackStatistics() const override {
@@ -4759,8 +4785,8 @@ struct AAValueRangeReturned : AAValueRangeImpl {
   }
 };
 
-struct AAValueRangeFloating : AAValueRangeImpl {
-  AAValueRangeFloating(const IRPosition &IRP) : AAValueRangeImpl(IRP) {}
+struct AAValueRangeFloating : AAValueConstantRangeImpl {
+  AAValueRangeFloating(const IRPosition &IRP) : AAValueConstantRangeImpl(IRP) {}
 
   /// See AbstractAttribute::trackStatistics()
   void trackStatistics() const override {
@@ -4768,8 +4794,8 @@ struct AAValueRangeFloating : AAValueRangeImpl {
   }
 };
 
-struct AAValueRangeFunction : AAValueRangeImpl {
-  AAValueRangeFunction(const IRPosition &IRP) : AAValueRangeImpl(IRP) {}
+struct AAValueRangeFunction : AAValueConstantRangeImpl {
+  AAValueRangeFunction(const IRPosition &IRP) : AAValueConstantRangeImpl(IRP) {}
 
   /// See AbstractAttribute::initialize(...).
   ChangeStatus updateImpl(Attributor &A) override {
@@ -5591,8 +5617,8 @@ void Attributor::identifyDefaultAbstractAttributes(Function &F) {
         // Call site argument attribute "align".
         getOrCreateAAFor<AAAlign>(CSArgPos);
 
-	// Call site argument attribute "nofree".
-	getOrCreateAAFor<AANoFree>(CSArgPos);
+        // Call site argument attribute "nofree".
+        getOrCreateAAFor<AANoFree>(CSArgPos);
       }
     }
     return true;
@@ -5659,9 +5685,9 @@ raw_ostream &llvm::operator<<(raw_ostream &OS, const IRPosition &Pos) {
 }
 
 template <typename base_ty, base_ty BestState, base_ty WorstState>
-raw_ostream &llvm::
-operator<<(raw_ostream &OS,
-           const IntegerStateBase<base_ty, BestState, WorstState> &S) {
+raw_ostream &
+llvm::operator<<(raw_ostream &OS,
+                 const IntegerStateBase<base_ty, BestState, WorstState> &S) {
   return OS << "(" << S.getKnown() << "-" << S.getAssumed() << ")"
             << static_cast<const AbstractState &>(S);
 }
@@ -5778,7 +5804,7 @@ const char AANoCapture::ID = 0;
 const char AAValueSimplify::ID = 0;
 const char AAHeapToStack::ID = 0;
 const char AAMemoryBehavior::ID = 0;
-const char AAValueRange::ID = 0;
+const char AAValueConstantRange::ID = 0;
 
 // Macro magic to create the static generator function for attributes that
 // follow the naming scheme.
@@ -5884,7 +5910,7 @@ CREATE_VALUE_ABSTRACT_ATTRIBUTE_FOR_POSITION(AANoAlias)
 CREATE_VALUE_ABSTRACT_ATTRIBUTE_FOR_POSITION(AADereferenceable)
 CREATE_VALUE_ABSTRACT_ATTRIBUTE_FOR_POSITION(AAAlign)
 CREATE_VALUE_ABSTRACT_ATTRIBUTE_FOR_POSITION(AANoCapture)
-CREATE_VALUE_ABSTRACT_ATTRIBUTE_FOR_POSITION(AAValueRange)
+CREATE_VALUE_ABSTRACT_ATTRIBUTE_FOR_POSITION(AAValueConstantRange)
 
 CREATE_ALL_ABSTRACT_ATTRIBUTE_FOR_POSITION(AAValueSimplify)
 CREATE_ALL_ABSTRACT_ATTRIBUTE_FOR_POSITION(AAIsDead)

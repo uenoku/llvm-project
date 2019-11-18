@@ -105,6 +105,7 @@
 #include "llvm/Analysis/MustExecute.h"
 #include "llvm/Analysis/TargetLibraryInfo.h"
 #include "llvm/IR/CallSite.h"
+#include "llvm/IR/ConstantRange.h"
 #include "llvm/IR/PassManager.h"
 
 namespace llvm {
@@ -2063,18 +2064,26 @@ struct AAMemoryBehavior
   static const char ID;
 };
 
-struct AAValueRange : public StateWrapper<BooleanState, AbstractAttribute>,
+struct IntegerRangeState : public AbstractState {
+  ConstantRange Assumed;
+  ConstantRange Known;
+  
+  bool isValidState () override {
+
+  }
+};
+struct AAValueConstantRange : public StateWrapper<BooleanState, AbstractAttribute>,
                       public IRPosition {
-  AAValueRange(const IRPosition &IRP) : IRPosition(IRP) {}
+  AAValueConstantRange(const IRPosition &IRP) : IRPosition(IRP) {}
 
   /// Return an IR position, see struct IRPosition.
   const IRPosition &getIRPosition() const { return *this; }
 
-  /// Return an assumed range if it is not clear yet, return Optional::NoneType.
-  virtual ConstantRange * getAssumedRange(Attributor &A) const = 0;
+  /// Return an assumed range if it is not clear yet, return None.
+  virtual Optional<ConstantRange> getAssumedConstantRange(Attributor &A) const = 0;
 
   /// Create an abstract attribute view for the position \p IRP.
-  static AAValueRange &createForPosition(const IRPosition &IRP, Attributor &A);
+  static AAValueConstantRange &createForPosition(const IRPosition &IRP, Attributor &A);
 
   /// Unique ID (due to the unique address)
   static const char ID;
