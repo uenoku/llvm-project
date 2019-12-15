@@ -2151,12 +2151,16 @@ struct AAMemoryBehavior
 struct IntegerRangeState : public AbstractState {
   ConstantRange Assumed;
   ConstantRange Known;
+  uint32_t Width;
   IntegerRangeState(uint32_t BitWidth)
       : Known(ConstantRange::getFull(BitWidth)),
-        Assumed(ConstantRange::getEmpty(BitWidth)) {}
+        Assumed(ConstantRange::getEmpty(BitWidth)), Width(BitWidth) {}
 
-  bool isValidState() const override { return !Assumed.isFullSet(); }
+  bool isValidState() const override {
+    return Width > 0 && !Assumed.isFullSet();
+  }
   bool isAtFixpoint() const override { return Assumed == Known; }
+  uint32_t getBitWidth() const { return Width; }
   ChangeStatus indicateOptimisticFixpoint() override {
     Known = Assumed;
     return ChangeStatus::CHANGED;
@@ -2181,8 +2185,18 @@ struct IntegerRangeState : public AbstractState {
   void unionAssumed(const IntegerRangeState &R) {
     unionAssumed(R.getAssumedConstantRange());
   }
+  void unionKnown(const ConstantRange R) {
+    // Don't loose a known range.
+    Known = Known.unionWith(R);
+  }
+  void unionKnown(const IntegerRangeState &R) {
+    unionKnown(R.getKnownConstantRange());
+  }
 
-  void intersectKnown(const ConstantRange R) { Known = Known.intersectWith(R); }
+  void intersectKnown(const ConstantRange R) {
+    Known = Known.intersectWith(R);
+    // Assumed = Known.intersectWith(Known);
+  }
   void intersectKnown(const IntegerRangeState &R) {
     intersectKnown(R.getKnownConstantRange());
   }
@@ -2195,26 +2209,30 @@ struct IntegerRangeState : public AbstractState {
   /// intended that only information assumed in both states will be assumed in
   /// this one afterwards.
   void operator^=(const IntegerRangeState &R) {
-
     // NOTE: `^=` operator seems like `intersect` but in this case, we need to
     // take `union`.
     unionAssumed(R);
   }
 
   void operator&=(const IntegerRangeState &R) {
-
     // NOTE: `&=` operator seems like `intersect` but in this case, we need to
     // take `union`.
+
+    unionKnown(R);
     unionAssumed(R);
   }
 };
+
+raw_ostream &operator<<(raw_ostream &OS, const IntegerRangeState &State);
 struct AAValueConstantRange : public IntegerRangeState,
                               public AbstractAttribute,
                               public IRPosition {
   AAValueConstantRange(const IRPosition &IRP)
       : IRPosition(IRP),
         IntegerRangeState(
-            IRP.getAssociatedValue().getType()->getIntegerBitWidth()) {}
+            IRP.getAssociatedValue().getType()->isIntegerTy()
+                ? IRP.getAssociatedValue().getType()->getIntegerBitWidth()
+                : 0) {}
 
   /// Return an IR position, see struct IRPosition.
   const IRPosition &getIRPosition() const override { return *this; }
