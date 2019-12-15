@@ -2151,23 +2151,81 @@ struct AAMemoryBehavior
 struct IntegerRangeState : public AbstractState {
   ConstantRange Assumed;
   ConstantRange Known;
-  
-  bool isValidState () override {
+  IntegerRangeState(uint32_t BitWidth)
+      : Known(ConstantRange::getFull(BitWidth)),
+        Assumed(ConstantRange::getEmpty(BitWidth)) {}
 
+  bool isValidState() const override { return !Assumed.isFullSet(); }
+  bool isAtFixpoint() const override { return Assumed == Known; }
+  ChangeStatus indicateOptimisticFixpoint() override {
+    Known = Assumed;
+    return ChangeStatus::CHANGED;
+  }
+
+  ChangeStatus indicatePessimisticFixpoint() override {
+    Assumed = Known;
+    return ChangeStatus::CHANGED;
+  }
+
+  ConstantRange getAssumed() const { return Assumed; }
+
+  ConstantRange getKnown() const { return Known; }
+
+  ConstantRange getAssumedConstantRange() const { return getAssumed(); }
+  ConstantRange getKnownConstantRange() const { return getKnown(); }
+
+  void unionAssumed(const ConstantRange R) {
+    // Don't loose a known range.
+    Assumed = Assumed.unionWith(R).intersectWith(Known);
+  }
+  void unionAssumed(const IntegerRangeState &R) {
+    unionAssumed(R.getAssumedConstantRange());
+  }
+
+  void intersectKnown(const ConstantRange R) { Known = Known.intersectWith(R); }
+  void intersectKnown(const IntegerRangeState &R) {
+    intersectKnown(R.getKnownConstantRange());
+  }
+
+  bool operator==(const IntegerRangeState &R) const {
+    return getAssumedConstantRange() == R.getAssumedConstantRange() &&
+           getKnownConstantRange() == R.getKnownConstantRange();
+  }
+  /// "Clamp" this state with \p R. The result is subtype dependent but it is
+  /// intended that only information assumed in both states will be assumed in
+  /// this one afterwards.
+  void operator^=(const IntegerRangeState &R) {
+
+    // NOTE: `^=` operator seems like `intersect` but in this case, we need to
+    // take `union`.
+    unionAssumed(R);
+  }
+
+  void operator&=(const IntegerRangeState &R) {
+
+    // NOTE: `&=` operator seems like `intersect` but in this case, we need to
+    // take `union`.
+    unionAssumed(R);
   }
 };
-struct AAValueConstantRange : public StateWrapper<BooleanState, AbstractAttribute>,
-                      public IRPosition {
-  AAValueConstantRange(const IRPosition &IRP) : IRPosition(IRP) {}
+struct AAValueConstantRange : public IntegerRangeState,
+                              public AbstractAttribute,
+                              public IRPosition {
+  AAValueConstantRange(const IRPosition &IRP)
+      : IRPosition(IRP),
+        IntegerRangeState(
+            IRP.getAssociatedValue().getType()->getIntegerBitWidth()) {}
 
   /// Return an IR position, see struct IRPosition.
-  const IRPosition &getIRPosition() const { return *this; }
+  const IRPosition &getIRPosition() const override { return *this; }
 
-  /// Return an assumed range if it is not clear yet, return None.
-  virtual Optional<ConstantRange> getAssumedConstantRange(Attributor &A) const = 0;
+  /// See AbstractAttribute::getState(...).
+  IntegerRangeState &getState() override { return *this; }
+  const AbstractState &getState() const override { return *this; }
 
   /// Create an abstract attribute view for the position \p IRP.
-  static AAValueConstantRange &createForPosition(const IRPosition &IRP, Attributor &A);
+  static AAValueConstantRange &createForPosition(const IRPosition &IRP,
+                                                 Attributor &A);
 
   /// Unique ID (due to the unique address)
   static const char ID;

@@ -126,6 +126,7 @@ PIPE_OPERATOR(AANoFree)
 PIPE_OPERATOR(AAHeapToStack)
 PIPE_OPERATOR(AAReachability)
 PIPE_OPERATOR(AAMemoryBehavior)
+PIPE_OPERATOR(AAValueConstantRange)
 
 #undef PIPE_OPERATOR
 } // namespace llvm
@@ -2780,11 +2781,23 @@ getAssumedConstant(Attributor &A, const Value &V, AbstractAttribute &AA,
       A.getAAFor<AAValueSimplify>(AA, IRPosition::value(V));
   Optional<Value *> SimplifiedV = ValueSimplifyAA.getAssumedSimplifiedValue(A);
   UsedAssumedInformation |= !ValueSimplifyAA.isKnown();
+
   if (!SimplifiedV.hasValue())
     return llvm::None;
   if (isa_and_nonnull<UndefValue>(SimplifiedV.getValue()))
     return llvm::None;
-  return dyn_cast_or_null<ConstantInt>(SimplifiedV.getValue());
+
+  if (auto *C = dyn_cast<ConstantInt>(SimplifiedV.getValue()))
+    return C;
+
+  const auto &ValueConstantRangeAA =
+      A.getAAFor<AAValueConstantRange>(AA, IRPosition::value(V));
+  ConstantRange RangeV = ValueConstantRangeAA.getAssumedConstantRange();
+
+  if (auto *C = RangeV.getSingleElement())
+    return cast<ConstantInt>(ConstantInt::get(V.getType(), *C));
+
+  return nullptr;
 }
 
 static bool
@@ -4868,53 +4881,69 @@ void AAMemoryBehaviorFloating::analyzeUseIn(Attributor &A, const Use *U,
 /// ------------------ Value Constant Range Attribute
 /// ----------------------------
 struct AAValueConstantRangeImpl : AAValueConstantRange {
-  AAValueConstantRangeImpl(const IRPosition &IRP) : AAValueConstantRange(IRP) {}
+  using StateType = IntegerRangeState;
+  const uint32_t BitWidth;
+  AAValueConstantRangeImpl(const IRPosition &IRP)
+      : AAValueConstantRange(IRP),
+        BitWidth(IRP.getAssociatedValue().getType()->getIntegerBitWidth()) {}
 
+  uint32_t getBitWidth() const { return BitWidth; }
   /// See AbstractAttribute::getAsStr().
   const std::string getAsStr() const override {
-    return getAssumed() ? (getKnown() ? "has-range" : "maybe-has-range")
-                        : "unknown";
-  }
-  Optional<ConstantRange>
-  getAssumedConstantRange(Attributor &A) const override {
-    if (!getAssumed())
-      return ConstantRane::getFull(getAssociatedValue().getType()->getIntegerBitWidth());
-
-    return RangedAssociatedValue;
+    std::string Str;
+    llvm::raw_string_ostream OS(Str);
+    OS << "range <";
+    getKnownConstantRange().print(OS);
+    OS << " / ";
+    getAssumedConstantRange().print(OS);
+    OS << ">";
+    return OS.str();
   }
 
   ChangeStatus updateImpl(Attributor &A) override {
     return indicatePessimisticFixpoint();
   }
+
   ChangeStatus manifest(Attributor &A) override {
-    if (Instruction *I = dyn_cast<Instruction>(&getAssociatedValue())) {
-      if (auto *IT = dyn_cast<IntegerType>(I->getType())) {
-        Metadata *LowAndHigh[] = {
-            ConstantAsMetadata::get(
-                ConstantInt::get(IT, RangedAssociatedValue.getSignedMin())),
-            ConstantAsMetadata::get(
-                ConstantInt::get(IT, RangedAssociatedValue.getSignedMax()))};
-        I->setMetadata(LLVMContext::MD_range,
-                       MDNode::get(I->getContext(), LowAndHigh));
-      }
-    }
-    return ChangeStatus::UNCHANGED;
+    ConstantRange AssumedConstantRange = getAssumedConstantRange();
+    if (AssumedConstantRange.isFullSet())
+      return ChangeStatus::UNCHANGED;
   }
 
   /// See AbstractAttribute::trackStatistics()
   void trackStatistics() const override {}
 
   void initialize(Attributor &A) override {
-    assert(getAssociatedValue().getType()->isIntOrIntVectorTy() && "AAValueRangeConstant should be associcated with an integer value.");
-    RangedAssociatedValue = computeConstantRange(&getAssociatedValue());
-  }
+    assert(getAssociatedValue().getType()->isIntegerTy() &&
+           "AAValueConstantRange should be associcated with an integer value.");
+    Value &V = getAssociatedValue();
+    if (auto *C = dyn_cast<ConstantInt>(&V)) {
+      intersectKnown(ConstantRange(C->getValue()));
+      indicateOptimisticFixpoint();
+      return;
+    }
 
-protected:
-  ConstantRange RangedAssociatedValue;
+    if (isa<UndefValue>(&V)) {
+      indicateOptimisticFixpoint();
+      return;
+    }
+  }
 };
 
-struct AAValueRangeArgument final : AAValueConstantRangeImpl {
-  AAValueRangeArgument(const IRPosition &IRP) : AAValueConstantRangeImpl(IRP) {}
+struct AAValueConstantRangeArgument final : public AAValueConstantRangeImpl {
+
+  AAValueConstantRangeArgument(const IRPosition &IRP)
+      : AAValueConstantRangeImpl(IRP) {}
+
+  /// See AbstractAttribute::updateImpl(...).
+  ChangeStatus updateImpl(Attributor &A) override {
+    IntegerRangeState S(getBitWidth());
+    clampCallSiteArgumentStates<AAValueConstantRange, IntegerRangeState>(
+        A, *this, S);
+    // TODO: If we know we visited all returned values, thus no are assumed
+    // dead, we can take the known information from the state T.
+    return clampStateAndIndicateChange<IntegerRangeState>(this->getState(), S);
+  }
 
   /// See AbstractAttribute::trackStatistics()
   void trackStatistics() const override {
@@ -4922,17 +4951,51 @@ struct AAValueRangeArgument final : AAValueConstantRangeImpl {
   }
 };
 
-struct AAValueRangeReturned : AAValueConstantRangeImpl {
-  AAValueRangeReturned(const IRPosition &IRP) : AAValueConstantRangeImpl(IRP) {}
+struct AAValueConstantRangeReturned : AAValueConstantRangeImpl {
+  AAValueConstantRangeReturned(const IRPosition &IRP)
+      : AAValueConstantRangeImpl(IRP) {}
+  ChangeStatus updateImpl(Attributor &A) override {
+    // TODO: If we know we visited all returned values, thus no are assumed
+    // dead, we can take the known information from the state T.
+    //
+    IntegerRangeState S(getBitWidth());
+
+    clampReturnedValueStates<AAValueConstantRange, IntegerRangeState>(A, *this,
+                                                                      S);
+    return clampStateAndIndicateChange<StateType>(this->getState(), S);
+  }
 
   /// See AbstractAttribute::trackStatistics()
   void trackStatistics() const override {
     STATS_DECLTRACK_FNRET_ATTR(value_simplify)
   }
 };
+static ConstantRange computeUnionRangeMetadata(const MDNode &Ranges,
+                                               uint32_t BitWidth) {
+  auto C = ConstantRange::getEmpty(BitWidth);
+  unsigned NumRanges = Ranges.getNumOperands() / 2;
+  assert(NumRanges >= 1);
 
-struct AAValueRangeFloating : AAValueConstantRangeImpl {
-  AAValueRangeFloating(const IRPosition &IRP) : AAValueConstantRangeImpl(IRP) {}
+  for (unsigned i = 0; i < NumRanges; ++i) {
+    ConstantInt *Lower =
+        mdconst::extract<ConstantInt>(Ranges.getOperand(2 * i + 0));
+    ConstantInt *Upper =
+        mdconst::extract<ConstantInt>(Ranges.getOperand(2 * i + 1));
+    C = C.unionWith(ConstantRange(Lower->getValue(), Upper->getValue()));
+  }
+  return C;
+}
+
+struct AAValueConstantRangeFloating : AAValueConstantRangeImpl {
+  AAValueConstantRangeFloating(const IRPosition &IRP)
+      : AAValueConstantRangeImpl(IRP) {}
+  void initialize(Attributor &A) override {
+    // TODO: get metadata
+    if (LoadInst *LI = dyn_cast<LoadInst>(&getAssociatedValue()))
+      if (auto *RangeMD = LI->getMetadata(LLVMContext::MD_range))
+        intersectKnown(computeUnionRangeMetadata(
+            *RangeMD, getAssociatedValue().getType()->getIntegerBitWidth()));
+  }
 
   /// See AbstractAttribute::trackStatistics()
   void trackStatistics() const override {
@@ -4940,13 +5003,14 @@ struct AAValueRangeFloating : AAValueConstantRangeImpl {
   }
 };
 
-struct AAValueRangeFunction : AAValueConstantRangeImpl {
-  AAValueRangeFunction(const IRPosition &IRP) : AAValueConstantRangeImpl(IRP) {}
+struct AAValueConstantRangeFunction : AAValueConstantRangeImpl {
+  AAValueConstantRangeFunction(const IRPosition &IRP)
+      : AAValueConstantRangeImpl(IRP) {}
 
   /// See AbstractAttribute::initialize(...).
   ChangeStatus updateImpl(Attributor &A) override {
-    llvm_unreachable(
-        "AAValueRange(Function|CallSite)::updateImpl will not be called");
+    llvm_unreachable("AAValueConstantRange(Function|CallSite)::updateImpl will "
+                     "not be called");
   }
   /// See AbstractAttribute::trackStatistics()
   void trackStatistics() const override {
@@ -4954,25 +5018,37 @@ struct AAValueRangeFunction : AAValueConstantRangeImpl {
   }
 };
 
-struct AAValueRangeCallSite : AAValueRangeFunction {
-  AAValueRangeCallSite(const IRPosition &IRP) : AAValueRangeFunction(IRP) {}
+struct AAValueConstantRangeCallSite : AAValueConstantRangeFunction {
+  AAValueConstantRangeCallSite(const IRPosition &IRP)
+      : AAValueConstantRangeFunction(IRP) {}
   /// See AbstractAttribute::trackStatistics()
+
   void trackStatistics() const override {
     STATS_DECLTRACK_CS_ATTR(value_simplify)
   }
 };
 
-struct AAValueRangeCallSiteReturned : AAValueRangeReturned {
-  AAValueRangeCallSiteReturned(const IRPosition &IRP)
-      : AAValueRangeReturned(IRP) {}
+struct AAValueConstantRangeCallSiteReturned : AAValueConstantRangeReturned {
+  AAValueConstantRangeCallSiteReturned(const IRPosition &IRP)
+      : AAValueConstantRangeReturned(IRP) {}
+
+  void initialize(Attributor &A) override {
+    if (CallInst *CI = dyn_cast<CallInst>(&getAssociatedValue()))
+      if (auto *RangeMD = CI->getMetadata(LLVMContext::MD_range))
+        intersectKnown(computeUnionRangeMetadata(*RangeMD, getBitWidth()));
+  }
+
+  ChangeStatus manifest(Attributor &A) override {
+    return ChangeStatus::UNCHANGED;
+  }
 
   void trackStatistics() const override {
     STATS_DECLTRACK_CSRET_ATTR(value_simplify)
   }
 };
-struct AAValueRangeCallSiteArgument : AAValueRangeFloating {
-  AAValueRangeCallSiteArgument(const IRPosition &IRP)
-      : AAValueRangeFloating(IRP) {}
+struct AAValueConstantRangeCallSiteArgument : AAValueConstantRangeFloating {
+  AAValueConstantRangeCallSiteArgument(const IRPosition &IRP)
+      : AAValueConstantRangeFloating(IRP) {}
 
   void trackStatistics() const override {
     STATS_DECLTRACK_CSARG_ATTR(value_simplify)
