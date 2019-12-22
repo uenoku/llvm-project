@@ -2269,17 +2269,17 @@ struct AAValueConstantRange : public IntegerRangeState,
   static AAValueConstantRange &createForPosition(const IRPosition &IRP,
                                                  Attributor &A);
 
-  /// Return an assumed range for the assocaited value a program point \p I. If
+  /// Return an assumed range for the assocaited value a program point \p CtxI. If
   /// \p I is nullptr, simply return an assumed range.
   virtual ConstantRange
   getAssumedConstantRange(Attributor &A,
-                          const Instruction *I = nullptr) const = 0;
+                          const Instruction *CtxI = nullptr) const = 0;
 
-  /// Return a known range for the assocaited value at a program point \p I. If
+  /// Return a known range for the assocaited value at a program point \p CtxI. If
   /// \p I is nullptr, simply return a known range.
   virtual ConstantRange
   getKnownConstantRange(Attributor &A,
-                        const Instruction *I = nullptr) const = 0;
+                        const Instruction *CtxI = nullptr) const = 0;
 
   /// Unique ID (due to the unique address)
   static const char ID;
