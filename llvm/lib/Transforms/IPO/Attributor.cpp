@@ -4948,20 +4948,20 @@ struct AAValueConstantRangeImpl : AAValueConstantRange {
   /// See AAValueConstantRange::getKnownConstantRange(..).
   ConstantRange
   getKnownConstantRange(Attributor &A,
-                        const Instruction *CtxI = nullptr) const override {
-    if (!CtxI)
+                        const Instruction *I = nullptr) const override {
+    if (!I)
       return getKnown();
 
-    ConstantRange R = getConstantRangeFromSCEV(A, CtxI);
+    ConstantRange R = getConstantRangeFromSCEV(A, I);
     return getKnown().intersectWith(R);
   }
 
   /// See AAValueConstantRange::getAssumedConstantRange(..).
   ConstantRange
   getAssumedConstantRange(Attributor &A,
-                          const Instruction *CtxI = nullptr) const override {
+                          const Instruction *I = nullptr) const override {
 
-    if (!CtxI)
+    if (!I)
       return getAssumed();
 
     // TODO: Make SCEV use Attributor assumption.
@@ -4972,7 +4972,7 @@ struct AAValueConstantRangeImpl : AAValueConstantRange {
     // TODO: `I` is passed to make flow- and context-sensitivity query but it is
     // not so utilized.
 
-    ConstantRange R = getConstantRangeFromSCEV(A, CtxI);
+    ConstantRange R = getConstantRangeFromSCEV(A, I);
     return getAssumed().intersectWith(R);
   }
 
@@ -5157,7 +5157,7 @@ struct AAValueConstantRangeFloating : AAValueConstantRangeImpl {
 
   /// See AbstractAttribute::updateImpl(...).
   ChangeStatus updateImpl(Attributor &A) override {
-    Instruction *CtxI = getCtxI();
+    Instruction *PosI = dyn_cast<Instruction>(&getAnchorValue());
     auto VisitValueCB = [&](Value &V, IntegerRangeState &T,
                             bool Stripped) -> bool {
       Instruction *I = dyn_cast<Instruction>(&V);
@@ -5167,8 +5167,8 @@ struct AAValueConstantRangeFloating : AAValueConstantRangeImpl {
         const auto &AA =
             A.getAAFor<AAValueConstantRange>(*this, IRPosition::value(V));
 
-        // Clamp operator is not used to utilize a program point CtxI.
-        T.unionAssumed(AA.getAssumedConstantRange(A, CtxI));
+        // Clamp operator is not used to utilize a program point PosI.
+        T.unionAssumed(AA.getAssumedConstantRange(A, PosI));
 
         return T.isValidState();
       }
@@ -5179,11 +5179,11 @@ struct AAValueConstantRangeFloating : AAValueConstantRangeImpl {
 
         auto &LHSAA =
             A.getAAFor<AAValueConstantRange>(*this, IRPosition::value(*LHS));
-        auto LHSAARange = LHSAA.getAssumedConstantRange(A, CtxI);
+        auto LHSAARange = LHSAA.getAssumedConstantRange(A, PosI);
 
         auto &RHSAA =
             A.getAAFor<AAValueConstantRange>(*this, IRPosition::value(*RHS));
-        auto RHSAARange = RHSAA.getAssumedConstantRange(A, CtxI);
+        auto RHSAARange = RHSAA.getAssumedConstantRange(A, PosI);
 
         // If the value is phi and defined with a circular reference, we give
         // up.
@@ -5213,8 +5213,8 @@ struct AAValueConstantRangeFloating : AAValueConstantRangeImpl {
         auto &RHSAA =
             A.getAAFor<AAValueConstantRange>(*this, IRPosition::value(*RHS));
 
-        auto LHSAARange = LHSAA.getAssumedConstantRange(A, CtxI);
-        auto RHSAARange = RHSAA.getAssumedConstantRange(A, CtxI);
+        auto LHSAARange = LHSAA.getAssumedConstantRange(A, PosI);
+        auto RHSAARange = RHSAA.getAssumedConstantRange(A, PosI);
 
         // If one of them is empty set, we can't decide.
         if (LHSAARange.isEmptySet() || RHSAARange.isEmptySet())
