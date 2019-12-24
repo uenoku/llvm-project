@@ -170,12 +170,14 @@ define i1 @ipccp2() {
 
 define internal i32 @ipccp3i(i32 %a) {
 ; CHECK-LABEL: define {{[^@]+}}@ipccp3i
-; CHECK-SAME: (i32 returned [[A:%.*]])
-; CHECK-NEXT:    br label %t
+; CHECK-SAME: (i32 [[A:%.*]]) #1
+; CHECK-NEXT:    [[C:%.*]] = icmp eq i32 [[A:%.*]], 7
+; CHECK-NEXT:    br i1 [[C]], label [[T:%.*]], label [[F:%.*]]
 ; CHECK:       t:
-; CHECK-NEXT:    ret i32 7
+; CHECK-NEXT:    ret i32 [[A]]
 ; CHECK:       f:
-; CHECK-NEXT:    unreachable
+; CHECK-NEXT:    [[R:%.*]] = call i32 @ipccp3i(i32 5) #1
+; CHECK-NEXT:    ret i32 [[R]]
 ;
   %c = icmp eq i32 %a, 7
   br i1 %c, label %t, label %f
@@ -187,11 +189,10 @@ f:
 }
 
 define i32 @ipccp3() {
-; CHECK-LABEL: define {{[^@]+}}@ipccp3()
-; CHECK-NEXT:    [[R:%.*]] = call i32 @ipccp3i(i32 7)
+; CHECK-LABEL: define {{[^@]+}}@ipccp3() #1
+; CHECK-NEXT:    [[R:%.*]] = call i32 @ipccp3i(i32 7) #1
 ; CHECK-NEXT:    ret i32 [[R]]
 ;
-; FIXME: R should be replaced with 7
   %r = call i32 @ipccp3i(i32 7)
   ret i32 %r
 }
