@@ -7,6 +7,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "Plugins/ExpressionParser/Clang/ClangExpressionDeclMap.h"
+#include "TestingSupport/SubsystemRAII.h"
 #include "TestingSupport/Symbol/ClangTestUtils.h"
 #include "lldb/Host/FileSystem.h"
 #include "lldb/Host/HostInfo.h"
@@ -33,7 +34,7 @@ struct FakeClangExpressionDeclMap : public ClangExpressionDeclMap {
     // persistent declaration and must be inside the scratch AST context.
     assert(d);
     assert(d->getName().startswith("$"));
-    assert(&d->getASTContext() == m_scratch_context->getASTContext());
+    assert(&d->getASTContext() == &m_scratch_context->getASTContext());
     m_persistent_decls[d->getName()] = d;
   }
 
@@ -54,14 +55,7 @@ private:
 
 namespace {
 struct ClangExpressionDeclMapTest : public testing::Test {
-  static void SetUpTestCase() {
-    FileSystem::Initialize();
-    HostInfo::Initialize();
-  }
-  static void TearDownTestCase() {
-    HostInfo::Terminate();
-    FileSystem::Terminate();
-  }
+  SubsystemRAII<FileSystem, HostInfo> subsystems;
 
   /// The ClangASTImporter used during the test.
   ClangASTImporterSP importer;
