@@ -4949,7 +4949,7 @@ struct AAValueConstantRangeImpl : AAValueConstantRange {
   /// Helper function to get a range for the associated value at program point
   /// \p I.
   ConstantRange getConstantRangeFromLVI(Attributor &A,
-                                        const Instruction *I = nullptr) const {
+                                        const Instruction *CtxI = nullptr) const {
     if (!getAnchorScope())
       return getFull();
 
@@ -4957,31 +4957,31 @@ struct AAValueConstantRangeImpl : AAValueConstantRange {
         A.getInfoCache().getAnalysisResultForFunction<LazyValueAnalysis>(
             *getAnchorScope());
 
-    if (!LVI || !I)
+    if (!LVI || !CtxI)
       return getFull();
     return LVI->getConstantRange(&getAssociatedValue(),
-                                 const_cast<BasicBlock *>(I->getParent()),
-                                 const_cast<Instruction *>(I));
+                                 const_cast<BasicBlock *>(CtxI->getParent()),
+                                 const_cast<Instruction *>(CtxI));
   }
 
   /// See AAValueConstantRange::getKnownConstantRange(..).
   ConstantRange
   getKnownConstantRange(Attributor &A,
-                        const Instruction *I = nullptr) const override {
-    if (!I)
+                        const Instruction *CtxI = nullptr) const override {
+    if (!CtxI)
       return getKnown();
 
-    ConstantRange LVIR = getConstantRangeFromLVI(A, I);
-    ConstantRange R = getConstantRangeFromSCEV(A, I);
+    ConstantRange LVIR = getConstantRangeFromLVI(A, CtxI);
+    ConstantRange R = getConstantRangeFromSCEV(A, CtxI);
     return getKnown().intersectWith(R).intersectWith(LVIR);
   }
 
   /// See AAValueConstantRange::getAssumedConstantRange(..).
   ConstantRange
   getAssumedConstantRange(Attributor &A,
-                          const Instruction *I = nullptr) const override {
+                          const Instruction *CtxI = nullptr) const override {
 
-    if (!I)
+    if (!CtxI)
       return getAssumed();
 
     // TODO: Make SCEV use Attributor assumption.
@@ -4992,8 +4992,8 @@ struct AAValueConstantRangeImpl : AAValueConstantRange {
     // TODO: `I` is passed to make flow- and context-sensitivity query but it is
     // not so utilized.
 
-    ConstantRange LVIR = getConstantRangeFromLVI(A, I);
-    ConstantRange R = getConstantRangeFromSCEV(A, I);
+    ConstantRange LVIR = getConstantRangeFromLVI(A, CtxI);
+    ConstantRange R = getConstantRangeFromSCEV(A, CtxI);
     return getAssumed().intersectWith(R).intersectWith(LVIR);
   }
 
@@ -5178,7 +5178,7 @@ struct AAValueConstantRangeFloating : AAValueConstantRangeImpl {
 
   /// See AbstractAttribute::updateImpl(...).
   ChangeStatus updateImpl(Attributor &A) override {
-    Instruction *PosI = dyn_cast<Instruction>(&getAnchorValue());
+    Instruction *CtxI = getCtxI();
     auto VisitValueCB = [&](Value &V, IntegerRangeState &T,
                             bool Stripped) -> bool {
       Instruction *I = dyn_cast<Instruction>(&V);
@@ -5188,8 +5188,8 @@ struct AAValueConstantRangeFloating : AAValueConstantRangeImpl {
         const auto &AA =
             A.getAAFor<AAValueConstantRange>(*this, IRPosition::value(V));
 
-        // Clamp operator is not used to utilize a program point PosI.
-        T.unionAssumed(AA.getAssumedConstantRange(A, PosI));
+        // Clamp operator is not used to utilize a program point CtxI.
+        T.unionAssumed(AA.getAssumedConstantRange(A, CtxI));
 
         return T.isValidState();
       }
@@ -5200,11 +5200,11 @@ struct AAValueConstantRangeFloating : AAValueConstantRangeImpl {
 
         auto &LHSAA =
             A.getAAFor<AAValueConstantRange>(*this, IRPosition::value(*LHS));
-        auto LHSAARange = LHSAA.getAssumedConstantRange(A, PosI);
+        auto LHSAARange = LHSAA.getAssumedConstantRange(A, CtxI);
 
         auto &RHSAA =
             A.getAAFor<AAValueConstantRange>(*this, IRPosition::value(*RHS));
-        auto RHSAARange = RHSAA.getAssumedConstantRange(A, PosI);
+        auto RHSAARange = RHSAA.getAssumedConstantRange(A, CtxI);
 
         // If the value is phi and defined with a circular reference, we give
         // up.
@@ -5234,8 +5234,8 @@ struct AAValueConstantRangeFloating : AAValueConstantRangeImpl {
         auto &RHSAA =
             A.getAAFor<AAValueConstantRange>(*this, IRPosition::value(*RHS));
 
-        auto LHSAARange = LHSAA.getAssumedConstantRange(A, PosI);
-        auto RHSAARange = RHSAA.getAssumedConstantRange(A, PosI);
+        auto LHSAARange = LHSAA.getAssumedConstantRange(A, CtxI);
+        auto RHSAARange = RHSAA.getAssumedConstantRange(A, CtxI);
 
         // If one of them is empty set, we can't decide.
         if (LHSAARange.isEmptySet() || RHSAARange.isEmptySet())
