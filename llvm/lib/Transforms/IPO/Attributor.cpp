@@ -23,6 +23,7 @@
 #include "llvm/Analysis/CaptureTracking.h"
 #include "llvm/Analysis/EHPersonalities.h"
 #include "llvm/Analysis/GlobalsModRef.h"
+#include "llvm/Analysis/LazyValueInfo.h"
 #include "llvm/Analysis/Loads.h"
 #include "llvm/Analysis/MemoryBuiltins.h"
 #include "llvm/Analysis/ScalarEvolution.h"
@@ -4945,6 +4946,24 @@ struct AAValueConstantRangeImpl : AAValueConstantRange {
     return SE->getUnsignedRange(S);
   }
 
+  /// Helper function to get a range for the associated value at program point
+  /// \p I.
+  ConstantRange getConstantRangeFromLVI(Attributor &A,
+                                        const Instruction *I = nullptr) const {
+    if (!getAnchorScope())
+      return getFull();
+
+    LazyValueInfo *LVI =
+        A.getInfoCache().getAnalysisResultForFunction<LazyValueAnalysis>(
+            *getAnchorScope());
+
+    if (!LVI || !I)
+      return getFull();
+    return LVI->getConstantRange(&getAssociatedValue(),
+                                 const_cast<BasicBlock *>(I->getParent()),
+                                 const_cast<Instruction *>(I));
+  }
+
   /// See AAValueConstantRange::getKnownConstantRange(..).
   ConstantRange
   getKnownConstantRange(Attributor &A,
@@ -4952,8 +4971,9 @@ struct AAValueConstantRangeImpl : AAValueConstantRange {
     if (!I)
       return getKnown();
 
+    ConstantRange LVIR = getConstantRangeFromLVI(A, I);
     ConstantRange R = getConstantRangeFromSCEV(A, I);
-    return getKnown().intersectWith(R);
+    return getKnown().intersectWith(R).intersectWith(LVIR);
   }
 
   /// See AAValueConstantRange::getAssumedConstantRange(..).
@@ -4972,8 +4992,9 @@ struct AAValueConstantRangeImpl : AAValueConstantRange {
     // TODO: `I` is passed to make flow- and context-sensitivity query but it is
     // not so utilized.
 
+    ConstantRange LVIR = getConstantRangeFromLVI(A, I);
     ConstantRange R = getConstantRangeFromSCEV(A, I);
-    return getAssumed().intersectWith(R);
+    return getAssumed().intersectWith(R).intersectWith(LVIR);
   }
 
   /// Helper function to create MDNode for range metadata.
