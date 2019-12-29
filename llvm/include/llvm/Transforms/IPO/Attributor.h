@@ -823,10 +823,11 @@ struct Attributor {
     return true;
   }
 
-  /// Helper function to replace all uses of \p V with \p NV.
+  /// Helper function to replace all uses of \p V with \p NV. Return true if
+  /// there is any change.
   bool changeValueAfterManifest(Value &V, Value &NV) {
     bool Changed = false;
-    for(auto &U:V.uses())
+    for (auto &U : V.uses())
       Changed |= changeUseAfterManifest(U, NV);
 
     return Changed;
