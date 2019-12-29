@@ -823,6 +823,15 @@ struct Attributor {
     return true;
   }
 
+  /// Helper function to replace all uses of \p V with \p NV.
+  bool changeValueAfterManifest(Value &V, Value &NV) {
+    bool Changed = false;
+    for(auto &U:V.uses())
+      Changed |= changeUseAfterManifest(U, NV);
+
+    return Changed;
+  }
+
   /// Get pointer operand of memory accessing instruction. If \p I is
   /// not a memory accessing instruction, return nullptr. If \p AllowVolatile,
   /// is set to false and the instruction is volatile, return nullptr.
