@@ -4147,8 +4147,7 @@ struct AAValueSimplifyImpl : AAValueSimplify {
       if (!V.user_empty() && &V != C && V.getType() == C->getType()) {
         LLVM_DEBUG(dbgs() << "[Attributor][ValueSimplify] " << V << " -> " << *C
                           << "\n");
-        for(auto &U:V.uses())
-          A.changeUseAfterManifest(U, *C);
+        A.changeValueAfterManifest(V, *C);
         Changed = ChangeStatus::CHANGED;
       }
     }
