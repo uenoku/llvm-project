@@ -239,6 +239,11 @@ static cl::opt<bool> EnableSyntheticCounts(
     cl::desc("Run synthetic function entry count generation "
              "pass"));
 
+static cl::opt<std::string> PassPipeline(
+    "custom-passes",
+    cl::desc("A textual description of the pass pipeline for optimizing"),
+    cl::Hidden);
+
 static const Regex DefaultAliasRegex(
     "^(default|thinlto-pre-link|thinlto|lto-pre-link|lto)<(O[0123sz])>$");
 
@@ -1564,6 +1569,37 @@ PassBuilder::buildLTODefaultPipeline(OptimizationLevel Level, bool DebugLogging,
   MPM.addPass(GlobalDCEPass());
 
   // FIXME: Maybe enable MergeFuncs conditionally after it's ported.
+  return MPM;
+}
+ModulePassManager
+PassBuilder::buildLLVMOptimizationPipeline(PassBuilder::OptimizationLevel Level,
+                                           bool DebugLogging, bool IsThinLTO,
+                                           bool IsLTO) {
+  ModulePassManager MPM(DebugLogging);
+
+  // // If custom pipelines is specified, add them and return.
+  if (PassPipeline.size()) {
+    for (auto &C : PipelineStartEPCallbacks)
+      C(MPM);
+    if (auto Err = parsePassPipeline(MPM, PassPipeline,
+                                     /*VerifyEachPass*/ false, DebugLogging)) {
+      errs() << toString(std::move(Err)) << "\n";
+      assert(false && "parse error in pass pipeliine");
+    }
+    return MPM;
+  }
+
+  if (IsThinLTO) {
+    MPM = buildThinLTOPreLinkDefaultPipeline(Level, DebugLogging);
+    MPM.addPass(CanonicalizeAliasesPass());
+    MPM.addPass(NameAnonGlobalPass());
+  } else if (IsLTO) {
+    MPM = buildLTOPreLinkDefaultPipeline(Level, DebugLogging);
+    MPM.addPass(CanonicalizeAliasesPass());
+    MPM.addPass(NameAnonGlobalPass());
+  } else {
+    MPM = buildPerModuleDefaultPipeline(Level, DebugLogging);
+  }
   return MPM;
 }
 

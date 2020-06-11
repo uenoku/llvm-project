@@ -1344,21 +1344,8 @@ void EmitAssemblyHelper::EmitAssemblyWithNewPassManager(
       if (CodeGenOpts.UniqueInternalLinkageNames) {
         MPM.addPass(UniqueInternalLinkageNamesPass());
       }
-
-      if (IsThinLTO) {
-        MPM = PB.buildThinLTOPreLinkDefaultPipeline(
-            Level, CodeGenOpts.DebugPassManager);
-        MPM.addPass(CanonicalizeAliasesPass());
-        MPM.addPass(NameAnonGlobalPass());
-      } else if (IsLTO) {
-        MPM = PB.buildLTOPreLinkDefaultPipeline(Level,
-                                                CodeGenOpts.DebugPassManager);
-        MPM.addPass(CanonicalizeAliasesPass());
-        MPM.addPass(NameAnonGlobalPass());
-      } else {
-        MPM = PB.buildPerModuleDefaultPipeline(Level,
-                                               CodeGenOpts.DebugPassManager);
-      }
+      MPM = PB.buildLLVMOptimizationPipeline(
+          Level, CodeGenOpts.DebugPassManager, IsThinLTO, IsLTO);
     }
 
     if (LangOpts.Sanitize.has(SanitizerKind::HWAddress)) {
