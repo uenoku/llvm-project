@@ -501,6 +501,14 @@ public:
     if (DebugLogging)
       dbgs() << "Starting " << getTypeName<IRUnitT>() << " pass manager run.\n";
 
+    // FIXME: I guess this is not appropriate way to log the result...
+    StringRef StatsFile = "pass_result.stats";
+    std::error_code EC;
+    auto StatS = std::make_unique<llvm::raw_fd_ostream>(
+        StatsFile, EC, llvm::sys::fs::OF_Append);
+    if (EC)
+      assert(false && "Cannot open stats");
+
     for (unsigned Idx = 0, Size = Passes.size(); Idx != Size; ++Idx) {
       auto *P = Passes[Idx].get();
 
@@ -519,6 +527,9 @@ public:
         TimeTraceScope TimeScope(P->name(), IR.getName());
         PassPA = P->run(IR, AM, ExtraArgs...);
       }
+
+      *StatS << "PassResult," << P->name() << "," << IR.getName() << ","
+             << (PassPA.areAllPreserved() ? "preserved" : "modified") << "\n";
 
       // Call onto PassInstrumentation's AfterPass callbacks immediately after
       // running the pass.
