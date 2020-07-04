@@ -447,6 +447,19 @@ getAnalysisResult(AnalysisManager<IRUnitT, AnalysisArgTs...> &AM, IRUnitT &IR,
 // header.
 class PassInstrumentationAnalysis;
 
+/// ML guided Pass Result Predictor
+template <typename IRUnitT> struct MLPassResultPredicter {
+  bool predict(IRUnitT &IR, StringRef PassName) { return true; }
+};
+
+bool getAdviceForFunctionPass(Function &F, StringRef PassName);
+template <> struct MLPassResultPredicter<Function> {
+  bool predict(Function &IR, StringRef PassName) {
+    bool Result = true;
+    dbgs() << "Run PasResultPredictor for " << PassName << "\n";
+    return Result;
+  }
+};
 /// Manages a sequence of passes over a particular unit of IR.
 ///
 /// A pass manager contains a sequence of passes to run over a particular unit
@@ -509,6 +522,8 @@ public:
     if (EC)
       assert(false && "Cannot open stats");
 
+    MLPassResultPredicter<IRUnitT> PRP;
+
     for (unsigned Idx = 0, Size = Passes.size(); Idx != Size; ++Idx) {
       auto *P = Passes[Idx].get();
 
@@ -525,7 +540,8 @@ public:
       PreservedAnalyses PassPA;
       {
         TimeTraceScope TimeScope(P->name(), IR.getName());
-        PassPA = P->run(IR, AM, ExtraArgs...);
+        if (PRP.predict(IR, P->name()))
+          PassPA = P->run(IR, AM, ExtraArgs...);
       }
 
       *StatS << "PassResult," << P->name() << "," << IR.getName() << ","
