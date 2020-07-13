@@ -89,6 +89,11 @@ bool FunctionAnalysisManagerModuleProxy::Result::invalidate(
   // Return false to indicate that this result is still a valid proxy.
   return false;
 }
+
+bool getAdviceForFunctionPass(Function &F, StringRef PassName) {
+  return true;
+}
+
 } // namespace llvm
 
 AnalysisSetKey CFGAnalyses::SetKey;

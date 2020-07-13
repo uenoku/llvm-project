@@ -47,6 +47,7 @@
 #include "llvm/IR/PassManagerInternal.h"
 #include "llvm/Pass.h"
 #include "llvm/Support/Debug.h"
+#include "llvm/Support/FileSystem.h"
 #include "llvm/Support/TimeProfiler.h"
 #include "llvm/Support/TypeName.h"
 #include <algorithm>
@@ -448,12 +449,12 @@ getAnalysisResult(AnalysisManager<IRUnitT, AnalysisArgTs...> &AM, IRUnitT &IR,
 class PassInstrumentationAnalysis;
 
 /// ML guided Pass Result Predictor
-template <typename IRUnitT> struct MLPassResultPredicter {
+template <typename IRUnitT> struct MLPassResultPredictor {
   bool predict(IRUnitT &IR, StringRef PassName) { return true; }
 };
 
 bool getAdviceForFunctionPass(Function &F, StringRef PassName);
-template <> struct MLPassResultPredicter<Function> {
+template <> struct MLPassResultPredictor<Function> {
   bool predict(Function &IR, StringRef PassName) {
     bool Result = true;
     dbgs() << "Run PasResultPredictor for " << PassName << "\n";
@@ -481,7 +482,8 @@ public:
   /// Construct a pass manager.
   ///
   /// If \p DebugLogging is true, we'll log our progress to llvm::dbgs().
-  explicit PassManager(bool DebugLogging = false) : DebugLogging(DebugLogging) {}
+  explicit PassManager(bool DebugLogging = false)
+      : DebugLogging(DebugLogging) {}
 
   // FIXME: These are equivalent to the default move constructor/move
   // assignment. However, using = default triggers linker errors due to the
@@ -522,7 +524,7 @@ public:
     if (EC)
       assert(false && "Cannot open stats");
 
-    MLPassResultPredicter<IRUnitT> PRP;
+    MLPassResultPredictor<IRUnitT> PRP;
 
     for (unsigned Idx = 0, Size = Passes.size(); Idx != Size; ++Idx) {
       auto *P = Passes[Idx].get();
@@ -546,6 +548,7 @@ public:
 
       *StatS << "PassResult," << P->name() << "," << IR.getName() << ","
              << (PassPA.areAllPreserved() ? "preserved" : "modified") << "\n";
+      StatS->flush();
 
       // Call onto PassInstrumentation's AfterPass callbacks immediately after
       // running the pass.
