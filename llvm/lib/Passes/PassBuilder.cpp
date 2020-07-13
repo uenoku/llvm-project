@@ -207,10 +207,9 @@ static cl::opt<int> PreInlineThreshold(
     cl::desc("Control the amount of inlining in pre-instrumentation inliner "
              "(default = 75)"));
 
-static cl::opt<bool>
-    RunNewGVN("enable-npm-newgvn", cl::init(false),
-              cl::Hidden, cl::ZeroOrMore,
-              cl::desc("Run NewGVN instead of GVN"));
+static cl::opt<bool> RunNewGVN("enable-npm-newgvn", cl::init(false), cl::Hidden,
+                               cl::ZeroOrMore,
+                               cl::desc("Run NewGVN instead of GVN"));
 
 static cl::opt<bool> EnableGVNHoist(
     "enable-npm-gvn-hoist", cl::init(false), cl::Hidden,
@@ -243,6 +242,11 @@ static cl::opt<std::string> PassPipeline(
     "custom-passes",
     cl::desc("A textual description of the pass pipeline for optimizing"),
     cl::Hidden);
+
+static cl::opt<bool> RunSimplicationPipeline(
+    "run-simplication-passes", cl::init(false), cl::Hidden,
+    cl::desc("Enable simplication passes before the custom pass"));
+
 
 static const Regex DefaultAliasRegex(
     "^(default|thinlto-pre-link|thinlto|lto-pre-link|lto)<(O[0123sz])>$");
@@ -557,10 +561,8 @@ FunctionPassManager PassBuilder::buildO1FunctionSimplificationPipeline(
   return FPM;
 }
 
-FunctionPassManager
-PassBuilder::buildFunctionSimplificationPipeline(OptimizationLevel Level,
-                                                 ThinLTOPhase Phase,
-                                                 bool DebugLogging) {
+FunctionPassManager PassBuilder::buildFunctionSimplificationPipeline(
+    OptimizationLevel Level, ThinLTOPhase Phase, bool DebugLogging) {
   assert(Level != OptimizationLevel::O0 && "Must request optimizations!");
 
   // The O1 pipeline has a separate pipeline creation function to simplify
@@ -1135,11 +1137,11 @@ ModulePassManager PassBuilder::buildModuleOptimizationPipeline(
   // convert to more optimized IR using more aggressive simplify CFG options.
   // The extra sinking transform can create larger basic blocks, so do this
   // before SLP vectorization.
-  OptimizePM.addPass(SimplifyCFGPass(SimplifyCFGOptions().
-                                     forwardSwitchCondToPhi(true).
-                                     convertSwitchToLookupTable(true).
-                                     needCanonicalLoops(false).
-                                     sinkCommonInsts(true)));
+  OptimizePM.addPass(SimplifyCFGPass(SimplifyCFGOptions()
+                                         .forwardSwitchCondToPhi(true)
+                                         .convertSwitchToLookupTable(true)
+                                         .needCanonicalLoops(false)
+                                         .sinkCommonInsts(true)));
 
   // Optimize parallel scalar instruction chains into SIMD instructions.
   if (PTO.SLPVectorization)
@@ -1164,7 +1166,8 @@ ModulePassManager PassBuilder::buildModuleOptimizationPipeline(
       PTO.ForgetAllSCEVInLoopUnroll)));
   OptimizePM.addPass(WarnMissedTransformationsPass());
   OptimizePM.addPass(InstCombinePass());
-  OptimizePM.addPass(RequireAnalysisPass<OptimizationRemarkEmitterAnalysis, Function>());
+  OptimizePM.addPass(
+      RequireAnalysisPass<OptimizationRemarkEmitterAnalysis, Function>());
   OptimizePM.addPass(createFunctionToLoopPassAdaptor(
       LICMPass(PTO.LicmMssaOptCap, PTO.LicmMssaNoAccForPromotionCap),
       EnableMSSALoopDependency, DebugLogging));
@@ -1232,7 +1235,8 @@ PassBuilder::buildPerModuleDefaultPipeline(OptimizationLevel Level,
 
   ModulePassManager MPM(DebugLogging);
 
-  // Force any function attributes we want the rest of the pipeline to observe.
+  // Force any function attributes we want the rest of the pipeline to
+  // observe.
   MPM.addPass(ForceFunctionAttrsPass());
 
   // Apply module pipeline start EP callback.
@@ -1248,7 +1252,6 @@ PassBuilder::buildPerModuleDefaultPipeline(OptimizationLevel Level,
 
   // Now add the optimization pipeline.
   MPM.addPass(buildModuleOptimizationPipeline(Level, DebugLogging, LTOPreLink));
-
   return MPM;
 }
 
@@ -1405,8 +1408,8 @@ PassBuilder::buildLTODefaultPipeline(OptimizationLevel Level, bool DebugLogging,
   }
 
   // Now deduce any function attributes based in the current code.
-  MPM.addPass(createModuleToPostOrderCGSCCPassAdaptor(
-              PostOrderFunctionAttrsPass()));
+  MPM.addPass(
+      createModuleToPostOrderCGSCCPassAdaptor(PostOrderFunctionAttrsPass()));
 
   // Do RPO function attribute inference across the module to forward-propagate
   // attributes where applicable.
@@ -1498,8 +1501,8 @@ PassBuilder::buildLTODefaultPipeline(OptimizationLevel Level, bool DebugLogging,
   // Run a few AA driver optimizations here and now to cleanup the code.
   MPM.addPass(createModuleToFunctionPassAdaptor(std::move(FPM)));
 
-  MPM.addPass(createModuleToPostOrderCGSCCPassAdaptor(
-              PostOrderFunctionAttrsPass()));
+  MPM.addPass(
+      createModuleToPostOrderCGSCCPassAdaptor(PostOrderFunctionAttrsPass()));
   // FIXME: here we run IP alias analysis in the legacy PM.
 
   FunctionPassManager MainFPM;
@@ -1581,6 +1584,11 @@ PassBuilder::buildLLVMOptimizationPipeline(PassBuilder::OptimizationLevel Level,
   if (PassPipeline.size()) {
     for (auto &C : PipelineStartEPCallbacks)
       C(MPM);
+
+    if(RunSimplicationPipeline)
+      MPM.addPass(buildModuleSimplificationPipeline(Level, ThinLTOPhase::None,
+                                                DebugLogging));
+
     if (auto Err = parsePassPipeline(MPM, PassPipeline,
                                      /*VerifyEachPass*/ false, DebugLogging)) {
       errs() << toString(std::move(Err)) << "\n";
@@ -1790,7 +1798,8 @@ Expected<SimplifyCFGOptions> parseSimplifyCFGOptions(StringRef Params) {
         return make_error<StringError>(
             formatv("invalid argument to SimplifyCFG pass bonus-threshold "
                     "parameter: '{0}' ",
-                    ParamName).str(),
+                    ParamName)
+                .str(),
             inconvertibleErrorCode());
       Result.bonusInstThreshold(BonusInstThreshold.getSExtValue());
     } else {
@@ -1998,9 +2007,12 @@ static bool isFunctionPassName(StringRef Name, CallbacksT &Callbacks) {
   if (parseRepeatPassName(Name))
     return true;
 
+    // dbgs() << "fpass:" << NAME << "\n";
+
 #define FUNCTION_PASS(NAME, CREATE_PASS)                                       \
   if (Name == NAME)                                                            \
     return true;
+
 #define FUNCTION_PASS_WITH_PARAMS(NAME, CREATE_PASS, PARSER)                   \
   if (checkParametrizedPassName(Name, NAME))                                   \
     return true;
