@@ -41,6 +41,7 @@
 #include "llvm/ADT/SmallPtrSet.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/ADT/TinyPtrVector.h"
+#include "llvm/Analysis/MLPassResultPredictor.h"
 #include "llvm/IR/Function.h"
 #include "llvm/IR/Module.h"
 #include "llvm/IR/PassInstrumentation.h"
@@ -448,19 +449,6 @@ getAnalysisResult(AnalysisManager<IRUnitT, AnalysisArgTs...> &AM, IRUnitT &IR,
 // header.
 class PassInstrumentationAnalysis;
 
-/// ML guided Pass Result Predictor
-template <typename IRUnitT> struct MLPassResultPredictor {
-  bool predict(IRUnitT &IR, StringRef PassName) { return true; }
-};
-
-bool getAdviceForFunctionPass(Function &F, StringRef PassName);
-template <> struct MLPassResultPredictor<Function> {
-  bool predict(Function &IR, StringRef PassName) {
-    bool Result = true;
-    dbgs() << "Run PasResultPredictor for " << PassName << "\n";
-    return Result;
-  }
-};
 /// Manages a sequence of passes over a particular unit of IR.
 ///
 /// A pass manager contains a sequence of passes to run over a particular unit

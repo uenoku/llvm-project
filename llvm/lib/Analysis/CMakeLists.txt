@@ -1,5 +1,5 @@
-# set(CommonMLSources MLInlineAdvisor.cpp MLPassResultPredictor.cpp)
-set(CommonMLSources MLInlineAdvisor.cpp)
+set(CommonMLSources MLInlineAdvisor.cpp MLPassResultPredictor.cpp)
+# set(CommonMLSources MLInlineAdvisor.cpp)
 set(ReleaseModeMLSources ReleaseModeModelRunner.cpp)
 
 if (DEFINED LLVM_HAVE_TF_AOT)
