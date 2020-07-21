@@ -10,6 +10,7 @@
 #define LLVM_INLINEFEATURESANALYSIS_H_
 
 #include "llvm/IR/PassManager.h"
+#include "llvm/Support/JSON.h"
 
 namespace llvm {
 class Function;
@@ -37,6 +38,15 @@ public:
     /// Number of direct calls made from this function to other functions
     /// defined in this module.
     int64_t DirectCallsToDefinedFunctions = 0;
+    json::Value toJSON() const {
+      std::map<std::string, json::Value> tmp;
+      json::Object obj;
+      obj.try_emplace("BasicBlockCount", BasicBlockCount);
+      obj.try_emplace("BlocksReachedFromConditionalInstruction", BlocksReachedFromConditionalInstruction);
+      obj.try_emplace("Uses", Uses);
+      obj.try_emplace("DirectCallsToDefinedFunctions",DirectCallsToDefinedFunctions);
+      return obj;
+    } 
   };
   Result run(const Function &F, FunctionAnalysisManager &FAM);
 };

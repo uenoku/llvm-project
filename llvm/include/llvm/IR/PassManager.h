@@ -166,8 +166,7 @@ public:
   }
 
   /// Construct a preserved analyses object with a single preserved set.
-  template <typename AnalysisSetT>
-  static PreservedAnalyses allInSet() {
+  template <typename AnalysisSetT> static PreservedAnalyses allInSet() {
     PreservedAnalyses PA;
     PA.preserveSet<AnalysisSetT>();
     return PA;
@@ -512,7 +511,7 @@ public:
     if (EC)
       assert(false && "Cannot open stats");
 
-    MLPassResultPredictor<IRUnitT> PRP;
+    MLPassResultPredictor<IRUnitT, AnalysisManagerT> PRP;
 
     for (unsigned Idx = 0, Size = Passes.size(); Idx != Size; ++Idx) {
       auto *P = Passes[Idx].get();
@@ -530,7 +529,7 @@ public:
       PreservedAnalyses PassPA;
       {
         TimeTraceScope TimeScope(P->name(), IR.getName());
-        if (PRP.predict(IR, P->name()))
+        if (PRP.predict(IR, AM, P->name(), {}))
           PassPA = P->run(IR, AM, ExtraArgs...);
       }
 

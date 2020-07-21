@@ -36,17 +36,43 @@ using namespace llvm;
 
 #define DEBUG_TYPE "pass-result-predictor-ml"
 
+static cl::opt<bool> StorePassResult("store-pass-result", cl::Hidden,
+                                     cl::desc("store feature vector"),
+                                     cl::init(false));
+
 template <>
-bool MLPassResultPredictor<Module>::predict(Module &IR, StringRef PassName) {
+bool MLPassResultPredictor<Module, ModuleAnalysisManager>::predict(
+    Module &IR, ModuleAnalysisManager &MAM, StringRef PassName,
+    std::vector<std::pair<StringRef, bool>> PassResult
+    ) {
   bool Result = true;
   dbgs() << "Run PasResultPredictor for " << PassName << "\n";
   return Result;
 }
 
 template <>
-bool MLPassResultPredictor<Function>::predict(Function &IR,
-                                              StringRef PassName) {
+bool MLPassResultPredictor<Function, FunctionAnalysisManager>::predict(
+    Function &IR, FunctionAnalysisManager &FAM, StringRef PassName,  
+    std::vector<std::pair<StringRef, bool>> PassResult
+    ) {
+
   bool Result = true;
+  if (StorePassResult) {
+    InlineFeaturesAnalysis Ana;
+    InlineFeaturesAnalysis::Result Result = Ana.run(IR, FAM);
+    json::Value json = Result.toJSON();
+    json::Array json_array;
+    for(auto [pass, result]: PassResult){
+      json::Object object;
+      object.try_emplace(pass, result);
+      json_array.push_back(std::move(object));
+    }
+    json::Object obj;
+    obj.try_emplace("feature", json);
+    obj.try_emplace("pass", std::move(json_array));
+    json::Value b(std::move(obj));
+    dbgs () << b << "\n";
+  }
   dbgs() << "Run PasResultPredictor for " << PassName << "\n";
   return Result;
 }

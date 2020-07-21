@@ -31,12 +31,13 @@ class Module;
 class MLInlineAdvice;
 
 /// ML guided Pass Result Predictor
-template <typename IRUnit> struct MLPassResultPredictor {
+template <typename IRUnitT, typename AnalysisManagerT>
+struct MLPassResultPredictor {
 public:
   MLPassResultPredictor() {}
   virtual ~MLPassResultPredictor() = default;
   //  const MLModelRunner &getModelRunner() const { return *ModelRunner.get(); }
-  bool predict(IRUnit &IR, StringRef PassName);
+  bool predict(IRUnitT &IR, AnalysisManagerT &AM, StringRef PassName, std::vector<std::pair<StringRef, bool>>);
 };
 
 // template <> struct MLPassResultPredictor<Function> {
@@ -54,8 +55,6 @@ public:
 //   //  const MLModelRunner &getModelRunner() const { return
 //   *ModelRunner.get(); } bool predict(Module &IR, StringRef PassName);
 // };
-bool predictSub(MLPassResultPredictor<Function> &MPP, Function &IR,
-                StringRef &PassName);
 
 } // namespace llvm
 
