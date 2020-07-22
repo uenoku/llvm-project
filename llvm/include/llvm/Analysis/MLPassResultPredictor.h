@@ -13,7 +13,6 @@
 #include "llvm/ADT/StringRef.h"
 #include "llvm/ADT/TinyPtrVector.h"
 #include "llvm/Analysis/MLModelRunner.h"
-#include "llvm/Analysis/MLPassResultPredictor.h"
 #include "llvm/IR/Function.h"
 #include "llvm/IR/Module.h"
 #include "llvm/IR/PassInstrumentation.h"
@@ -21,6 +20,7 @@
 #include "llvm/Pass.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/FileSystem.h"
+#include "llvm/Support/JSON.h"
 #include "llvm/Support/TimeProfiler.h"
 #include "llvm/Support/TypeName.h"
 #include <memory>
@@ -29,6 +29,7 @@ namespace llvm {
 class Function;
 class Module;
 class MLInlineAdvice;
+struct PredictorInput;
 
 /// ML guided Pass Result Predictor
 template <typename IRUnitT, typename AnalysisManagerT>
@@ -36,8 +37,10 @@ struct MLPassResultPredictor {
 public:
   MLPassResultPredictor() {}
   virtual ~MLPassResultPredictor() = default;
-  //  const MLModelRunner &getModelRunner() const { return *ModelRunner.get(); }
-  bool predict(IRUnitT &IR, AnalysisManagerT &AM, StringRef PassName, std::vector<std::pair<StringRef, bool>>);
+  bool predict(PredictorInput *In);
+  PredictorInput *createInput(IRUnitT &IR, AnalysisManagerT &AM,
+                              StringRef PassName);
+  void dump(StringRef, PredictorInput*, bool, raw_ostream&);
 };
 
 // template <> struct MLPassResultPredictor<Function> {

@@ -32,47 +32,77 @@
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/Path.h"
 
-using namespace llvm;
-
 #define DEBUG_TYPE "pass-result-predictor-ml"
 
+namespace llvm {
 static cl::opt<bool> StorePassResult("store-pass-result", cl::Hidden,
                                      cl::desc("store feature vector"),
                                      cl::init(false));
 
-template <>
-bool MLPassResultPredictor<Module, ModuleAnalysisManager>::predict(
-    Module &IR, ModuleAnalysisManager &MAM, StringRef PassName,
-    std::vector<std::pair<StringRef, bool>> PassResult
-    ) {
-  bool Result = true;
-  dbgs() << "Run PasResultPredictor for " << PassName << "\n";
-  return Result;
-}
-
-template <>
-bool MLPassResultPredictor<Function, FunctionAnalysisManager>::predict(
-    Function &IR, FunctionAnalysisManager &FAM, StringRef PassName,  
-    std::vector<std::pair<StringRef, bool>> PassResult
-    ) {
-
-  bool Result = true;
-  if (StorePassResult) {
-    InlineFeaturesAnalysis Ana;
-    InlineFeaturesAnalysis::Result Result = Ana.run(IR, FAM);
-    json::Value json = Result.toJSON();
+struct PredictorInput {
+  InlineFeaturesAnalysis::Result Features;
+  std::vector<std::pair<StringRef, bool>> PassResults;
+  StringRef PassName;
+  json::Value toJSON() const {
+    json::Value json = Features.toJSON();
     json::Array json_array;
-    for(auto [pass, result]: PassResult){
+    for (auto [pass, result] : PassResults) {
       json::Object object;
       object.try_emplace(pass, result);
       json_array.push_back(std::move(object));
     }
     json::Object obj;
     obj.try_emplace("feature", json);
-    obj.try_emplace("pass", std::move(json_array));
-    json::Value b(std::move(obj));
-    dbgs () << b << "\n";
+    obj.try_emplace("pass_history", std::move(json_array));
+    obj.try_emplace("pass", PassName);
+    return obj;
   }
-  dbgs() << "Run PasResultPredictor for " << PassName << "\n";
-  return Result;
+};
+template<>
+void MLPassResultPredictor<Module, ModuleAnalysisManager>::dump(StringRef s, PredictorInput* in, bool modified, raw_ostream& OS){
+  json::Object obj;
+  if(!in)return;
+  obj["IR_name"] = s;
+  obj["input"] = in->toJSON();
+  obj["modified"] = modified;
+  json::Value v = std::move(obj);
+  OS << v << "\n";
 }
+template<>
+void MLPassResultPredictor<Function, FunctionAnalysisManager>::dump(StringRef s, PredictorInput* in, bool modified, raw_ostream& OS){
+  json::Object obj;
+  if(!in)return;
+  obj["IR_name"] = s;
+  obj["input"] = in->toJSON();
+  obj["modified"] = modified;
+  json::Value v = std::move(obj);
+  OS << v << "\n";
+}
+template <>
+bool MLPassResultPredictor<Module, ModuleAnalysisManager>::predict(
+    PredictorInput *In) {
+  return true;
+}
+
+template <>
+bool MLPassResultPredictor<Function, FunctionAnalysisManager>::predict(
+    PredictorInput *In) {
+  return true;
+}
+
+template <>
+PredictorInput *
+MLPassResultPredictor<Module, ModuleAnalysisManager>::createInput(
+    Module &IR, ModuleAnalysisManager &FAM, StringRef PassName) {
+  return nullptr;
+}
+
+template <>
+PredictorInput *
+MLPassResultPredictor<Function, FunctionAnalysisManager>::createInput(
+    Function &IR, FunctionAnalysisManager &FAM, StringRef PassName) {
+  InlineFeaturesAnalysis Ana;
+  InlineFeaturesAnalysis::Result Result = Ana.run(IR, FAM);
+  return new PredictorInput{Result, FAM.PassResults[&IR], PassName};
+}
+} // namespace llvm

@@ -94,6 +94,29 @@ bool getAdviceForFunctionPass(Function &F, StringRef PassName) {
   return true;
 }
 
+// template <typename IRUnitT> 
+// void registerResultSub(AnalysisManager<IRUnitT> &AM, IRUnitT &M, const PreservedAnalyses &PA, StringRef Pass) 
+// {
+//       AM.PassResults[&M].push_back({Pass, !PA.areAllPreserved()}); 
+// }
+
+// template <> 
+// void registerResultSub(AnalysisManager<Function> &AM, Function &M, const PreservedAnalyses &PA, StringRef Pass) 
+// {
+//       AM.PassResults[&M].push_back({Pass, !PA.areAllPreserved()}); 
+// }
+
+// template<>
+// void registerResultSub<Module>(AnalysisManager<Module> &AM, Module &M, const PreservedAnalyses &PA, StringRef Pass) {
+//   AnalysisManager<Function> &FAM = getFAM(AM, M);
+//   for(Function& F: M)
+//       FAM.registerResult(F, PA, Pass); 
+// }
+
+FunctionAnalysisManager &getFAM(ModuleAnalysisManager &AM, Module &M){
+  return AM.getResult<FunctionAnalysisManagerModuleProxy>(M).getManager();
+}
+
 } // namespace llvm
 
 AnalysisSetKey CFGAnalyses::SetKey;

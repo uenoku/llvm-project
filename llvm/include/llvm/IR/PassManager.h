@@ -510,6 +510,12 @@ public:
         StatsFile, EC, llvm::sys::fs::OF_Append);
     if (EC)
       assert(false && "Cannot open stats");
+    std::error_code EC2;
+    auto StatS2 = std::make_unique<llvm::raw_fd_ostream>(
+        "pass_data.txt", EC2, llvm::sys::fs::OF_Append);
+    if (EC2)
+      assert(false && "Cannot open stats");
+
 
     MLPassResultPredictor<IRUnitT, AnalysisManagerT> PRP;
 
@@ -526,13 +532,17 @@ public:
         dbgs() << "Running pass: " << P->name() << " on " << IR.getName()
                << "\n";
 
+
       PreservedAnalyses PassPA;
       {
         TimeTraceScope TimeScope(P->name(), IR.getName());
-        if (PRP.predict(IR, AM, P->name(), {}))
-          PassPA = P->run(IR, AM, ExtraArgs...);
-      }
 
+        auto In = PRP.createInput(IR, AM, P->name());
+        if (PRP.predict(In))
+          PassPA = P->run(IR, AM, ExtraArgs...);
+        PRP.dump(IR.getName(), In, !PassPA.areAllPreserved(), *StatS2);
+      }
+      
       *StatS << "PassResult," << P->name() << "," << IR.getName() << ","
              << (PassPA.areAllPreserved() ? "preserved" : "modified") << "\n";
       StatS->flush();
@@ -544,6 +554,8 @@ public:
       // Update the analysis manager as each pass runs and potentially
       // invalidates analyses.
       AM.invalidate(IR, PassPA);
+
+      AM.registerResult(IR, PassPA, P->name());
 
       // Finally, intersect the preserved analyses to compute the aggregate
       // preserved set for this pass manager.
@@ -586,6 +598,8 @@ private:
   bool DebugLogging;
 };
 
+
+
 extern template class PassManager<Module>;
 
 /// Convenience typedef for a pass manager over modules.
@@ -595,6 +609,7 @@ extern template class PassManager<Function>;
 
 /// Convenience typedef for a pass manager over functions.
 using FunctionPassManager = PassManager<Function>;
+
 
 /// Pseudo-analysis pass that exposes the \c PassInstrumentation to pass
 /// managers. Goes before AnalysisManager definition to provide its
@@ -621,6 +636,11 @@ public:
     return PassInstrumentation(Callbacks);
   }
 };
+
+// template <typename IRUnitT> 
+// void registerResultSub(AnalysisManager<IRUnitT> &AM, IRUnitT &M, const PreservedAnalyses &PA, StringRef Pass){
+//   AM.PassResults[&M].push_back({Pass, !PA.areAllPreserved()}); 
+// }
 
 /// A container for analyses that lazily runs them and caches their
 /// results.
@@ -745,6 +765,12 @@ public:
     SmallDenseMap<AnalysisKey *, bool, 8> &IsResultInvalidated;
     const AnalysisResultMapT &Results;
   };
+
+  void registerResult(IRUnitT &IR, const PreservedAnalyses &PA, StringRef Pass){
+    PassResults[&IR].push_back({Pass, !PA.areAllPreserved()}); 
+  }
+   
+  std::map<IRUnitT*, std::vector<std::pair<StringRef, bool>>> PassResults;
 
   /// Construct an empty analysis manager.
   ///
@@ -939,6 +965,16 @@ private:
   /// Indicates whether we log to \c llvm::dbgs().
   bool DebugLogging;
 };
+
+AnalysisManager<Function> &getFAM(AnalysisManager<Module>&, Module &M);
+
+
+template<>
+void inline AnalysisManager<Module>::registerResult(Module &M, const PreservedAnalyses &PA, StringRef Pass) {
+  AnalysisManager<Function> &FAM = getFAM(*this, M);
+  for(Function& F: M)
+      FAM.registerResult(F, PA, Pass); 
+}
 
 extern template class AnalysisManager<Module>;
 
