@@ -41,12 +41,14 @@
 #include "llvm/ADT/SmallPtrSet.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/ADT/TinyPtrVector.h"
+#include "llvm/Analysis/MLPassResultPredictor.h"
 #include "llvm/IR/Function.h"
 #include "llvm/IR/Module.h"
 #include "llvm/IR/PassInstrumentation.h"
 #include "llvm/IR/PassManagerInternal.h"
 #include "llvm/Pass.h"
 #include "llvm/Support/Debug.h"
+#include "llvm/Support/FileSystem.h"
 #include "llvm/Support/TimeProfiler.h"
 #include "llvm/Support/TypeName.h"
 #include <algorithm>
@@ -164,8 +166,7 @@ public:
   }
 
   /// Construct a preserved analyses object with a single preserved set.
-  template <typename AnalysisSetT>
-  static PreservedAnalyses allInSet() {
+  template <typename AnalysisSetT> static PreservedAnalyses allInSet() {
     PreservedAnalyses PA;
     PA.preserveSet<AnalysisSetT>();
     return PA;
@@ -440,6 +441,15 @@ getAnalysisResult(AnalysisManager<IRUnitT, AnalysisArgTs...> &AM, IRUnitT &IR,
 }
 
 } // namespace detail
+template<typename P> bool isDeclaration(P&IR);
+template<> bool inline isDeclaration<Function>(Function&F) {
+//  dbgs() << "check declaration \n";
+  return F.isDeclaration();
+}
+
+template<> bool inline isDeclaration<Module>(Module&) {
+  return false;
+}
 
 // Forward declare the pass instrumentation analysis explicitly queried in
 // generic PassManager code.
@@ -468,7 +478,8 @@ public:
   /// Construct a pass manager.
   ///
   /// If \p DebugLogging is true, we'll log our progress to llvm::dbgs().
-  explicit PassManager(bool DebugLogging = false) : DebugLogging(DebugLogging) {}
+  explicit PassManager(bool DebugLogging = false)
+      : DebugLogging(DebugLogging) {}
 
   // FIXME: These are equivalent to the default move constructor/move
   // assignment. However, using = default triggers linker errors due to the
@@ -501,6 +512,29 @@ public:
     if (DebugLogging)
       dbgs() << "Starting " << getTypeName<IRUnitT>() << " pass manager run.\n";
 
+    // FIXME: I guess this is not appropriate way to log the result...
+    StringRef StatsFile = "pass_result.stats";
+    std::error_code EC;
+    auto StatS = std::make_unique<llvm::raw_fd_ostream>(
+        StatsFile, EC, llvm::sys::fs::OF_Append);
+    if (EC)
+      assert(false && "Cannot open stats");
+    std::error_code EC2;
+    SmallVector<StringRef, 4> spt;
+    IR.getName().split(spt, "/"); 
+    int t = std::rand();
+    auto fname = "pass_data_" + std::to_string(t) + ".txt";
+    auto StatS2 = std::make_unique<llvm::raw_fd_ostream>(
+        StringRef(fname), EC2, llvm::sys::fs::OF_Append);
+    if (EC2)
+    {
+      dbgs() << fname << "\n";
+      assert(false && "Cannot open stats");
+    }
+
+
+    MLPassResultPredictor<IRUnitT, AnalysisManagerT> PRP;
+
     for (unsigned Idx = 0, Size = Passes.size(); Idx != Size; ++Idx) {
       auto *P = Passes[Idx].get();
 
@@ -514,11 +548,20 @@ public:
         dbgs() << "Running pass: " << P->name() << " on " << IR.getName()
                << "\n";
 
+
       PreservedAnalyses PassPA;
       {
         TimeTraceScope TimeScope(P->name(), IR.getName());
-        PassPA = P->run(IR, AM, ExtraArgs...);
+
+        auto In = PRP.createInput(IR, AM, P->name());
+        if (PRP.predict(In))
+          PassPA = P->run(IR, AM, ExtraArgs...);
+        PRP.dump(IR.getName(), In, !PassPA.areAllPreserved(), *StatS2);
       }
+      
+      *StatS << "PassResult," << P->name() << "," << IR.getName() << ","
+            << (PassPA.areAllPreserved() ? "preserved" : "modified") << ", " << !isDeclaration(IR) << "\n";
+      StatS->flush();
 
       // Call onto PassInstrumentation's AfterPass callbacks immediately after
       // running the pass.
@@ -527,6 +570,8 @@ public:
       // Update the analysis manager as each pass runs and potentially
       // invalidates analyses.
       AM.invalidate(IR, PassPA);
+
+      AM.registerResult(IR, PassPA, P->name());
 
       // Finally, intersect the preserved analyses to compute the aggregate
       // preserved set for this pass manager.
@@ -571,6 +616,8 @@ private:
   bool DebugLogging;
 };
 
+
+
 extern template class PassManager<Module>;
 
 /// Convenience typedef for a pass manager over modules.
@@ -580,6 +627,7 @@ extern template class PassManager<Function>;
 
 /// Convenience typedef for a pass manager over functions.
 using FunctionPassManager = PassManager<Function>;
+
 
 /// Pseudo-analysis pass that exposes the \c PassInstrumentation to pass
 /// managers. Goes before AnalysisManager definition to provide its
@@ -606,6 +654,11 @@ public:
     return PassInstrumentation(Callbacks);
   }
 };
+
+// template <typename IRUnitT> 
+// void registerResultSub(AnalysisManager<IRUnitT> &AM, IRUnitT &M, const PreservedAnalyses &PA, StringRef Pass){
+//   AM.PassResults[&M].push_back({Pass, !PA.areAllPreserved()}); 
+// }
 
 /// A container for analyses that lazily runs them and caches their
 /// results.
@@ -675,7 +728,6 @@ public:
       using ResultModelT =
           detail::AnalysisResultModel<IRUnitT, PassT, typename PassT::Result,
                                       PreservedAnalyses, Invalidator>;
-
       return invalidateImpl<ResultModelT>(PassT::ID(), IR, PA);
     }
 
@@ -688,6 +740,8 @@ public:
     bool invalidate(AnalysisKey *ID, IRUnitT &IR, const PreservedAnalyses &PA) {
       return invalidateImpl<>(ID, IR, PA);
     }
+
+    
 
   private:
     friend class AnalysisManager;
@@ -730,6 +784,12 @@ public:
     SmallDenseMap<AnalysisKey *, bool, 8> &IsResultInvalidated;
     const AnalysisResultMapT &Results;
   };
+
+  void registerResult(IRUnitT &IR, const PreservedAnalyses &PA, StringRef Pass){
+    PassResults[&IR].push_back({Pass, !PA.areAllPreserved()}); 
+  }
+   
+  std::map<IRUnitT*, std::vector<std::pair<StringRef, bool>>> PassResults;
 
   /// Construct an empty analysis manager.
   ///
@@ -925,6 +985,16 @@ private:
   bool DebugLogging;
 };
 
+AnalysisManager<Function> &getFAM(AnalysisManager<Module>&, Module &M);
+
+
+template<>
+void inline AnalysisManager<Module>::registerResult(Module &M, const PreservedAnalyses &PA, StringRef Pass) {
+  AnalysisManager<Function> &FAM = getFAM(*this, M);
+  for(Function& F: M)
+      FAM.registerResult(F, PA, Pass); 
+}
+
 extern template class AnalysisManager<Module>;
 
 /// Convenience typedef for the Module analysis manager.
@@ -934,6 +1004,8 @@ extern template class AnalysisManager<Function>;
 
 /// Convenience typedef for the Function analysis manager.
 using FunctionAnalysisManager = AnalysisManager<Function>;
+
+
 
 /// An analysis over an "outer" IR unit that provides access to an
 /// analysis manager over an "inner" IR unit.  The inner unit must be contained
@@ -1232,7 +1304,27 @@ public:
     // instrumenting callbacks for the passes later.
     PassInstrumentation PI = AM.getResult<PassInstrumentationAnalysis>(M);
 
+    std::error_code EC2, EC1;
     PreservedAnalyses PA = PreservedAnalyses::all();
+    MLPassResultPredictor<Function, FunctionAnalysisManager> PRP;
+
+    auto StatS = std::make_unique<llvm::raw_fd_ostream>(
+        "pass_result.stats", EC1, llvm::sys::fs::OF_Append);
+    if (EC1)
+      assert(false && "Cannot open stats");
+
+    SmallVector<StringRef, 4> spt;
+    M.getName().split(spt, "/"); 
+    int t = std::rand();
+    auto fname = "pass_data_" + std::to_string(t) + ".txt";
+    auto StatS2 = std::make_unique<llvm::raw_fd_ostream>(
+        StringRef(fname), EC2, llvm::sys::fs::OF_Append);
+    if (EC2)
+    {
+      dbgs() << fname << "\n";
+      assert(false && "Cannot open stats");
+    }
+
     for (Function &F : M) {
       if (F.isDeclaration())
         continue;
@@ -1246,8 +1338,15 @@ public:
       PreservedAnalyses PassPA;
       {
         TimeTraceScope TimeScope(Pass.name(), F.getName());
-        PassPA = Pass.run(F, FAM);
+        auto In = PRP.createInput(F, FAM, Pass.name());
+        if (PRP.predict(In))
+          PassPA = Pass.run(F, FAM);
+        PRP.dump(F.getName(), In, !PassPA.areAllPreserved(), *StatS2);
       }
+
+      *StatS << "PassResult," << Pass.name() << "," << F.getName() << ","
+            << (PassPA.areAllPreserved() ? "preserved" : "modified") << "\n";
+      StatS->flush();
 
       PI.runAfterPass(Pass, F);
 
@@ -1255,6 +1354,8 @@ public:
       // function's analyses (that's the contract of a function pass), so
       // directly handle the function analysis manager's invalidation here.
       FAM.invalidate(F, PassPA);
+
+      FAM.registerResult(F, PassPA, Pass.name());
 
       // Then intersect the preserved set so that invalidation of module
       // analyses will eventually occur when the module pass completes.
@@ -1388,6 +1489,9 @@ template <typename PassT>
 RepeatedPass<PassT> createRepeatedPass(int Count, PassT P) {
   return RepeatedPass<PassT>(Count, std::move(P));
 }
+
+
+
 
 } // end namespace llvm
 

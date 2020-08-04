@@ -30,7 +30,7 @@ class TargetMachine;
 namespace legacy {
 class FunctionPassManager;
 class PassManagerBase;
-}
+} // namespace legacy
 
 /// PassManagerBuilder - This class is used to set up a standard optimization
 /// sequence for languages like C and C++, allowing some APIs to customize the
@@ -229,6 +229,8 @@ public:
   void populateModulePassManager(legacy::PassManagerBase &MPM);
   void populateLTOPassManager(legacy::PassManagerBase &PM);
   void populateThinLTOPassManager(legacy::PassManagerBase &PM);
+  void populateDefaultFPMandMPM(legacy::FunctionPassManager &FPM,
+                                legacy::PassManagerBase &MPM);
 };
 
 /// Registers a function for adding a standard set of passes.  This should be
@@ -253,7 +255,7 @@ public:
 };
 
 inline PassManagerBuilder *unwrap(LLVMPassManagerBuilderRef P) {
-    return reinterpret_cast<PassManagerBuilder*>(P);
+  return reinterpret_cast<PassManagerBuilder *>(P);
 }
 
 inline LLVMPassManagerBuilderRef wrap(PassManagerBuilder *P) {

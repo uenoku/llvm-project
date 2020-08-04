@@ -23,6 +23,7 @@ FunctionPropertiesInfo::getFunctionPropertiesInfo(const Function &F,
   FunctionPropertiesInfo FPI;
 
   FPI.Uses = ((!F.hasLocalLinkage()) ? 1 : 0) + F.getNumUses();
+  FPI.InstructionCount = F.getInstructionCount();
 
   for (const auto &BB : F) {
     ++FPI.BasicBlockCount;
@@ -40,11 +41,22 @@ FunctionPropertiesInfo::getFunctionPropertiesInfo(const Function &F,
         const auto *Callee = CS->getCalledFunction();
         if (Callee && !Callee->isIntrinsic() && !Callee->isDeclaration())
           ++FPI.DirectCallsToDefinedFunctions;
+        FPI.CallInstCount++;
       }
-      if (I.getOpcode() == Instruction::Load) {
+
+      switch (I.getOpcode())
+      {
+      case Instruction::Load:
         ++FPI.LoadInstCount;
-      } else if (I.getOpcode() == Instruction::Store) {
+        break;
+      case Instruction::Store:
         ++FPI.StoreInstCount;
+        break;
+      case Instruction::Alloca:
+        ++FPI.AllocaInstCount;
+        break;
+      default:
+        break;
       }
     }
     // Loop Depth of the Basic Block
@@ -56,6 +68,22 @@ FunctionPropertiesInfo::getFunctionPropertiesInfo(const Function &F,
   FPI.TopLevelLoopCount += llvm::size(LI);
   return FPI;
 }
+
+json::Value FunctionPropertiesInfo::toJSON() const {
+  json::Object obj;
+  obj["BasicBlockCount"] =  BasicBlockCount;
+  obj["BlocksReachedFromConditionalInstruction"] =  BlocksReachedFromConditionalInstruction;
+  obj["Uses"] = Uses;
+  obj["DirectCallsToDefinedFucntions"] =  DirectCallsToDefinedFunctions;
+  obj["LoadInstCount"] =  LoadInstCount;
+  obj["StoreInstCount"] =  StoreInstCount;
+  obj["MaxLoopDepth"] =  MaxLoopDepth;
+  obj["TopLevelLoopCount"] =  TopLevelLoopCount;
+  obj["AllocaInstCount"] =  AllocaInstCount;
+  obj["InstructionCount"] =  InstructionCount;
+  obj["CallInstCount"] =  CallInstCount;
+  return obj;
+} 
 
 void FunctionPropertiesInfo::print(raw_ostream &OS) const {
   OS << "BasicBlockCount: " << BasicBlockCount << "\n"
