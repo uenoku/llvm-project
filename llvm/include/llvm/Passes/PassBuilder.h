@@ -443,6 +443,10 @@ public:
                                             bool DebugLogging,
                                             ModuleSummaryIndex *ExportSummary);
 
+  ModulePassManager buildLLVMOptimizationPipeline(OptimizationLevel Level,
+                                                  bool DebugLogging,
+                                                  bool IsThinLTO, bool IsLTO);
+
   /// Build the default `AAManager` with the default alias analysis pipeline
   /// registered.
   AAManager buildDefaultAAPipeline();

@@ -16,6 +16,7 @@
 
 #include "llvm/Analysis/LoopInfo.h"
 #include "llvm/IR/PassManager.h"
+#include "llvm/Support/JSON.h"
 
 namespace llvm {
 class Function;
@@ -26,6 +27,7 @@ public:
                                                           const LoopInfo &LI);
 
   void print(raw_ostream &OS) const;
+  json::Value toJSON () const;
 
   /// Number of basic blocks
   int64_t BasicBlockCount = 0;
@@ -51,6 +53,16 @@ public:
 
   // Store Instruction Count
   int64_t StoreInstCount = 0;
+
+  /// Number of alloca instuctions
+  int64_t AllocaInstCount = 0;
+
+  /// Number of alloca instuctions
+  int64_t InstructionCount = 0;
+
+  /// Number of alloca instuctions
+  int64_t CallInstCount = 0;
+  DenseMap<unsigned int, unsigned int> InstructionCount;
 
   // Maximum Loop Depth in the Function
   int64_t MaxLoopDepth = 0;
