@@ -12,6 +12,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "llvm/Analysis/FunctionPropertiesAnalysis.h"
+#include "llvm/IR/CFG.h"
 #include "llvm/IR/Instructions.h"
 
 using namespace llvm;
@@ -36,29 +37,55 @@ FunctionPropertiesInfo::getFunctionPropertiesInfo(const Function &F,
           (SI->getNumCases() + (nullptr != SI->getDefaultDest()));
     }
 
+    unsigned SuccSize = succ_size(&BB);
+    unsigned PredSize = pred_size(&BB);
+    if (SuccSize == 1)
+      ++FPI.BasicBlockWithSingleSuccessor;
+    else if (SuccSize == 2)
+      ++FPI.BasicBlockWithTwoSuccessors;
+    else if (SuccSize > 2)
+      ++FPI.BasicBlockWithMoreThanTwoSuccessors;
+
+    if (PredSize == 1)
+      ++FPI.BasicBlockWithSinglePredecessor;
+    else if (PredSize == 2)
+      ++FPI.BasicBlockWithTwoPredecessors;
+    else if (PredSize > 2)
+      ++FPI.BasicBlockWithMoreThanTwoPredecessors;
+
+    if (BB.size() > 500)
+      ++FPI.BigBasicBlock;
+    else if (BB.size() >= 15)
+      ++FPI.MediumBasicBlock;
+    else
+      ++FPI.SmallBasicBlock;
+
     for (const auto &I : BB) {
       if (auto *CS = dyn_cast<CallBase>(&I)) {
         const auto *Callee = CS->getCalledFunction();
         if (Callee && !Callee->isIntrinsic() && !Callee->isDeclaration())
           ++FPI.DirectCallsToDefinedFunctions;
-        FPI.CallInstCount++;
       }
 
-      switch (I.getOpcode())
-      {
-      case Instruction::Load:
-        ++FPI.LoadInstCount;
-        break;
-      case Instruction::Store:
-        ++FPI.StoreInstCount;
-        break;
-      case Instruction::Alloca:
-        ++FPI.AllocaInstCount;
-        break;
-      default:
-        break;
-      }
+      if (I.isBinaryOp() && I.getType()->isFloatTy())
+        ++FPI.FloatingPointInstCount;
+      else if (I.isBinaryOp() && I.getType()->isIntegerTy())
+        ++FPI.IntegerInstCount;
+
+      for (unsigned int i = 0; i < I.getNumOperands(); i++)
+        if (auto *C = dyn_cast<Constant>(I.getOperand(i))) {
+          if (C->getType()->isIntegerTy())
+            ++FPI.IntegerConstantOccurrences;
+          else if (C->getType()->isFloatTy())
+            ++FPI.FloatingConstantOccurrences;
+        }
+
+      if (I.isCast())
+        ++FPI.CastInstCount;
+
+      FPI.OpCodeCount[I.getOpcode()]++;
     }
+
     // Loop Depth of the Basic Block
     int64_t LoopDepth;
     LoopDepth = LI.getLoopDepth(&BB);
@@ -70,20 +97,36 @@ FunctionPropertiesInfo::getFunctionPropertiesInfo(const Function &F,
 }
 
 json::Value FunctionPropertiesInfo::toJSON() const {
+#define REGISTER(VAR, NAME) VAR[#NAME] = NAME;
   json::Object obj;
-  obj["BasicBlockCount"] =  BasicBlockCount;
-  obj["BlocksReachedFromConditionalInstruction"] =  BlocksReachedFromConditionalInstruction;
-  obj["Uses"] = Uses;
-  obj["DirectCallsToDefinedFucntions"] =  DirectCallsToDefinedFunctions;
-  obj["LoadInstCount"] =  LoadInstCount;
-  obj["StoreInstCount"] =  StoreInstCount;
-  obj["MaxLoopDepth"] =  MaxLoopDepth;
-  obj["TopLevelLoopCount"] =  TopLevelLoopCount;
-  obj["AllocaInstCount"] =  AllocaInstCount;
-  obj["InstructionCount"] =  InstructionCount;
-  obj["CallInstCount"] =  CallInstCount;
+  REGISTER(obj, BasicBlockCount);
+  REGISTER(obj, BlocksReachedFromConditionalInstruction);
+  REGISTER(obj, Uses);
+  REGISTER(obj, DirectCallsToDefinedFunctions);
+  REGISTER(obj, MaxLoopDepth);
+  REGISTER(obj, TopLevelLoopCount);
+  REGISTER(obj, InstructionCount);
+  REGISTER(obj, CastInstCount);
+  REGISTER(obj, FloatingConstantOccurrences);
+  REGISTER(obj, IntegerConstantOccurrences);
+  REGISTER(obj, FloatingPointInstCount);
+  REGISTER(obj, IntegerInstCount);
+  REGISTER(obj, BasicBlockWithSingleSuccessor);
+  REGISTER(obj, BasicBlockWithTwoSuccessors);
+  REGISTER(obj, BasicBlockWithMoreThanTwoSuccessors);
+  REGISTER(obj, BasicBlockWithSinglePredecessor);
+  REGISTER(obj, BasicBlockWithTwoPredecessors);
+  REGISTER(obj, BasicBlockWithMoreThanTwoPredecessors);
+  REGISTER(obj, BigBasicBlock);
+  REGISTER(obj, SmallBasicBlock);
+  REGISTER(obj, MediumBasicBlock);
+#undef REGISTER
+  for (unsigned int i = 1; i < 67; i++) {
+    obj["OpCode_" + std::string(Instruction::getOpcodeName(i))] =
+        OpCodeCount.count(i) ? OpCodeCount.find(i)->second : 0;
+  }
   return obj;
-} 
+}
 
 void FunctionPropertiesInfo::print(raw_ostream &OS) const {
   OS << "BasicBlockCount: " << BasicBlockCount << "\n"
@@ -92,8 +135,6 @@ void FunctionPropertiesInfo::print(raw_ostream &OS) const {
      << "Uses: " << Uses << "\n"
      << "DirectCallsToDefinedFunctions: " << DirectCallsToDefinedFunctions
      << "\n"
-     << "LoadInstCount: " << LoadInstCount << "\n"
-     << "StoreInstCount: " << StoreInstCount << "\n"
      << "MaxLoopDepth: " << MaxLoopDepth << "\n"
      << "TopLevelLoopCount: " << TopLevelLoopCount << "\n\n";
 }

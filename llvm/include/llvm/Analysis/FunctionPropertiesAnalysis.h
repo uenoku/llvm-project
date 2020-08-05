@@ -17,6 +17,7 @@
 #include "llvm/Analysis/LoopInfo.h"
 #include "llvm/IR/PassManager.h"
 #include "llvm/Support/JSON.h"
+#include <map>
 
 namespace llvm {
 class Function;
@@ -27,7 +28,7 @@ public:
                                                           const LoopInfo &LI);
 
   void print(raw_ostream &OS) const;
-  json::Value toJSON () const;
+  json::Value toJSON() const;
 
   /// Number of basic blocks
   int64_t BasicBlockCount = 0;
@@ -48,27 +49,41 @@ public:
   /// defined in this module.
   int64_t DirectCallsToDefinedFunctions = 0;
 
-  // Load Instruction Count
-  int64_t LoadInstCount = 0;
-
-  // Store Instruction Count
-  int64_t StoreInstCount = 0;
-
-  /// Number of alloca instuctions
-  int64_t AllocaInstCount = 0;
-
-  /// Number of alloca instuctions
+  /// Number of all instuctions
   int64_t InstructionCount = 0;
-
-  /// Number of alloca instuctions
-  int64_t CallInstCount = 0;
-  DenseMap<unsigned int, unsigned int> InstructionCount;
 
   // Maximum Loop Depth in the Function
   int64_t MaxLoopDepth = 0;
 
   // Number of Top Level Loops in the Function
   int64_t TopLevelLoopCount = 0;
+
+  int64_t CastInstCount = 0;
+
+  int64_t BasicBlockWithSingleSuccessor = 0;
+  int64_t BasicBlockWithTwoSuccessors = 0;
+  int64_t BasicBlockWithMoreThanTwoSuccessors = 0;
+
+  int64_t BasicBlockWithSinglePredecessor = 0;
+  int64_t BasicBlockWithTwoPredecessors = 0;
+  int64_t BasicBlockWithMoreThanTwoPredecessors = 0;
+
+  // Number of basic blocks with more than 500 instructions
+  int64_t BigBasicBlock = 0;
+
+  // Number of basic blocks with 15 ~ 500 instructions.
+  int64_t MediumBasicBlock = 0;
+
+  // Number of basic blocks with less than 15 instructions.
+  int64_t SmallBasicBlock = 0;
+
+  int64_t FloatingPointInstCount = 0;
+  int64_t IntegerInstCount = 0;
+
+  int64_t IntegerConstantOccurrences = 0;
+  int64_t FloatingConstantOccurrences = 0;
+
+  std::map<unsigned int, int64_t> OpCodeCount;
 };
 
 // Analysis pass
