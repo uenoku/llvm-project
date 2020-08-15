@@ -37,7 +37,7 @@ public:
 
   bool run() override;
 
-  void setFeature(FeatureIndex Index, int64_t Value) override;
+  void setFeature(size_t Index, int64_t Value) override;
   int64_t getFeature(int Index) const override;
 
 private:
@@ -71,7 +71,7 @@ int64_t ReleaseModeModelRunner::getFeature(int Index) const {
       CompiledModel->arg_data(FeatureIndices[Index]));
 }
 
-void ReleaseModeModelRunner::setFeature(FeatureIndex Index, int64_t Value) {
+void ReleaseModeModelRunner::setFeature(size_t Index, int64_t Value) {
   *static_cast<int64_t *>(CompiledModel->arg_data(
       FeatureIndices[static_cast<size_t>(Index)])) = Value;
 }

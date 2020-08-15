@@ -30,6 +30,7 @@
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringMap.h"
 #include "llvm/BinaryFormat/Dwarf.h"
+#include "llvm/Analysis/FunctionPassResultPredictionModel.h"
 #include "llvm/IR/Constants.h"
 #include "llvm/IR/DebugInfoMetadata.h"
 #include "llvm/IR/DerivedTypes.h"
@@ -1292,6 +1293,7 @@ public:
   /// frontends, etc.). This should only be used by the specific streamers, and
   /// never directly.
   std::unique_ptr<remarks::RemarkStreamer> MainRemarkStreamer;
+  std::unique_ptr<FunctionPassResultPredictionModel> Predictor;
 
   std::unique_ptr<DiagnosticHandler> DiagHandler;
   bool RespectDiagnosticFilters = false;

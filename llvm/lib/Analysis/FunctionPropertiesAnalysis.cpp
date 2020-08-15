@@ -122,8 +122,9 @@ json::Value FunctionPropertiesInfo::toJSON() const {
   REGISTER(obj, MediumBasicBlock);
 #undef REGISTER
   for (unsigned int i = 1; i < 67; i++) {
-    obj["OpCode_" + std::string(Instruction::getOpcodeName(i))] =
-        OpCodeCount.count(i) ? OpCodeCount.find(i)->second : 0;
+    // obj["OpCode_" + std::string(Instruction::getOpcodeName(i))] =
+//    OpCodeCount[i];
+    obj["OpCodeCount_" + std::to_string(i)] = OpCodeCount[i];
   }
   return obj;
 }

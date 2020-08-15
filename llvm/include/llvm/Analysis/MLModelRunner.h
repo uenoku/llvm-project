@@ -26,7 +26,7 @@ public:
   virtual ~MLModelRunner() = default;
 
   virtual bool run() = 0;
-  virtual void setFeature(FeatureIndex Index, int64_t Value) = 0;
+  virtual void setFeature(size_t Index, int64_t Value) = 0;
   virtual int64_t getFeature(int Index) const = 0;
 
 protected:

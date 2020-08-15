@@ -46,9 +46,13 @@ namespace llvm {
   M(CalleeConditionallyExecutedBlocks, "callee_conditionally_executed_blocks", \
     "number of blocks reached from a conditional instruction, in the callee")  \
   M(CalleeUsers, "callee_users",                                               \
-    "number of blocks reached from a conditional instruction, in the callee")
+    "number of blocks reached from a conditional instruction, in the callee") 
 
-enum class FeatureIndex : size_t {
+#define PASS_RESULT_FEATURE_ITERATOR(M)                                             \
+  M(InstructionCount, "InstructionCount", "InstructionCount") \
+  M(BasicBlockCount, "BasicBlockCount", "BasicBlockCount")
+
+enum class InlineFeatureIndex : size_t {
 #define POPULATE_INDICES(INDEX_NAME, NAME, COMMENT) INDEX_NAME,
   INLINE_FEATURE_ITERATOR(POPULATE_INDICES)
 #undef POPULATE_INDICES
@@ -56,7 +60,7 @@ enum class FeatureIndex : size_t {
 };
 
 constexpr size_t NumberOfFeatures =
-    static_cast<size_t>(FeatureIndex::NumberOfFeatures);
+    static_cast<size_t>(InlineFeatureIndex::NumberOfFeatures);
 
 extern const std::array<std::string, NumberOfFeatures> FeatureNameMap;
 

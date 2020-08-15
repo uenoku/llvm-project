@@ -2,6 +2,7 @@ if (DEFINED LLVM_HAVE_TF_AOT OR DEFINED LLVM_HAVE_TF_API)
   if (DEFINED LLVM_HAVE_TF_AOT)
     include(TensorFlowCompile)
     tfcompile(models/inliner serve action InlinerSizeModel llvm::InlinerSizeModel)
+    #    tfcompile(models/sora serve predict SORAModel llvm::SORAModel)
     list(APPEND GeneratedMLSources
       $<TARGET_OBJECTS:tf_xla_runtime_objects>
       ${GENERATED_OBJS}
@@ -50,6 +51,7 @@ add_llvm_component_library(LLVMAnalysis
   DominanceFrontier.cpp
   EHPersonalities.cpp
   FunctionPropertiesAnalysis.cpp
+  FunctionPassResultPredictionModel.cpp
   GlobalsModRef.cpp
   GuardUtils.cpp
   HeatUtils.cpp
