@@ -83,7 +83,7 @@ public:
   int64_t IntegerConstantOccurrences = 0;
   int64_t FloatingConstantOccurrences = 0;
 
-  std::map<unsigned int, int64_t> OpCodeCount;
+  std::array<int64_t, 70> OpCodeCount;
 };
 
 // Analysis pass

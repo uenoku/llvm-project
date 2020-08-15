@@ -229,22 +229,22 @@ std::unique_ptr<InlineAdvice> MLInlineAdvisor::getAdvice(CallBase &CB) {
   auto &CallerBefore = FAM.getResult<FunctionPropertiesAnalysis>(Caller);
   auto &CalleeBefore = FAM.getResult<FunctionPropertiesAnalysis>(Callee);
 
-  ModelRunner->setFeature(FeatureIndex::CalleeBasicBlockCount,
+  ModelRunner->setFeature((size_t)InlineFeatureIndex::CalleeBasicBlockCount,
                           CalleeBefore.BasicBlockCount);
-  ModelRunner->setFeature(FeatureIndex::CallSiteHeight,
+  ModelRunner->setFeature((size_t)InlineFeatureIndex::CallSiteHeight,
                           FunctionLevels[&Caller]);
-  ModelRunner->setFeature(FeatureIndex::NodeCount, NodeCount);
-  ModelRunner->setFeature(FeatureIndex::NrCtantParams, NrCtantParams);
-  ModelRunner->setFeature(FeatureIndex::CostEstimate, CostEstimate);
-  ModelRunner->setFeature(FeatureIndex::EdgeCount, EdgeCount);
-  ModelRunner->setFeature(FeatureIndex::CallerUsers, CallerBefore.Uses);
-  ModelRunner->setFeature(FeatureIndex::CallerConditionallyExecutedBlocks,
+  ModelRunner->setFeature((size_t)InlineFeatureIndex::NodeCount, NodeCount);
+  ModelRunner->setFeature((size_t)InlineFeatureIndex::NrCtantParams, NrCtantParams);
+  ModelRunner->setFeature((size_t)InlineFeatureIndex::CostEstimate, CostEstimate);
+  ModelRunner->setFeature((size_t)InlineFeatureIndex::EdgeCount, EdgeCount);
+  ModelRunner->setFeature((size_t)InlineFeatureIndex::CallerUsers, CallerBefore.Uses);
+  ModelRunner->setFeature((size_t)InlineFeatureIndex::CallerConditionallyExecutedBlocks,
                           CallerBefore.BlocksReachedFromConditionalInstruction);
-  ModelRunner->setFeature(FeatureIndex::CallerBasicBlockCount,
+  ModelRunner->setFeature((size_t)InlineFeatureIndex::CallerBasicBlockCount,
                           CallerBefore.BasicBlockCount);
-  ModelRunner->setFeature(FeatureIndex::CalleeConditionallyExecutedBlocks,
+  ModelRunner->setFeature((size_t)InlineFeatureIndex::CalleeConditionallyExecutedBlocks,
                           CalleeBefore.BlocksReachedFromConditionalInstruction);
-  ModelRunner->setFeature(FeatureIndex::CalleeUsers, CalleeBefore.Uses);
+  ModelRunner->setFeature((size_t)InlineFeatureIndex::CalleeUsers, CalleeBefore.Uses);
   return getAdviceFromModel(CB, ORE);
 }
 

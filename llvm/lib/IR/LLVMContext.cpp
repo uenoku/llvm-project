@@ -175,6 +175,14 @@ void LLVMContext::setLLVMRemarkStreamer(
   pImpl->LLVMRS = std::move(RemarkStreamer);
 }
 
+FunctionPassResultPredictionModel *LLVMContext::getPredictor() {
+  return pImpl->Predictor.get();;
+}
+
+void LLVMContext::setPredictor(std::unique_ptr<FunctionPassResultPredictionModel> Pred) {
+  pImpl->Predictor = std::move(Pred);
+}
+
 DiagnosticHandler::DiagnosticHandlerTy
 LLVMContext::getDiagnosticHandlerCallBack() const {
   return pImpl->DiagHandler->DiagHandlerCallback;

@@ -37,7 +37,7 @@ class StringRef;
 class Twine;
 class LLVMRemarkStreamer;
 class raw_ostream;
-
+struct FunctionPassResultPredictionModel;
 namespace remarks {
 class RemarkStreamer;
 }
@@ -121,6 +121,10 @@ public:
   /// synchronization scope ID.  Every synchronization scope registered with
   /// LLVMContext has unique ID except pre-defined ones.
   SyncScope::ID getOrInsertSyncScopeID(StringRef SSN);
+
+  FunctionPassResultPredictionModel* getPredictor();
+  void setPredictor(std::unique_ptr<FunctionPassResultPredictionModel>);
+
 
   /// getSyncScopeNames - Populates client supplied SmallVector with
   /// synchronization scope names registered with LLVMContext.  Synchronization

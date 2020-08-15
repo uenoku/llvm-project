@@ -89,6 +89,9 @@ bool FunctionAnalysisManagerModuleProxy::Result::invalidate(
   // Return false to indicate that this result is still a valid proxy.
   return false;
 }
+FunctionAnalysisManager &getFAM(ModuleAnalysisManager &AM, Module &M){
+  return AM.getResult<FunctionAnalysisManagerModuleProxy>(M).getManager();
+}
 } // namespace llvm
 
 AnalysisSetKey CFGAnalyses::SetKey;
