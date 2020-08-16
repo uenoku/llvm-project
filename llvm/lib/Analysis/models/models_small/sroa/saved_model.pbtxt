@@ -1,0 +1,544 @@
+meta_graphs {
+  meta_info_def {
+    stripped_op_list {
+      op {
+        name: "Const"
+        output_arg {
+          name: "output"
+          type_attr: "dtype"
+        }
+        attr {
+          name: "value"
+          type: "tensor"
+        }
+        attr {
+          name: "dtype"
+          type: "type"
+        }
+      }
+      op {
+        name: "NoOp"
+      }
+      op {
+        name: "PartitionedCall"
+        input_arg {
+          name: "args"
+          type_list_attr: "Tin"
+        }
+        output_arg {
+          name: "output"
+          type_list_attr: "Tout"
+        }
+        attr {
+          name: "Tin"
+          type: "list(type)"
+          has_minimum: true
+        }
+        attr {
+          name: "Tout"
+          type: "list(type)"
+          has_minimum: true
+        }
+        attr {
+          name: "f"
+          type: "func"
+        }
+        attr {
+          name: "config"
+          type: "string"
+          default_value {
+            s: ""
+          }
+        }
+        attr {
+          name: "config_proto"
+          type: "string"
+          default_value {
+            s: ""
+          }
+        }
+        attr {
+          name: "executor_type"
+          type: "string"
+          default_value {
+            s: ""
+          }
+        }
+      }
+      op {
+        name: "Placeholder"
+        output_arg {
+          name: "output"
+          type_attr: "dtype"
+        }
+        attr {
+          name: "dtype"
+          type: "type"
+        }
+        attr {
+          name: "shape"
+          type: "shape"
+          default_value {
+            shape {
+              unknown_rank: true
+            }
+          }
+        }
+      }
+      op {
+        name: "ReadVariableOp"
+        input_arg {
+          name: "resource"
+          type: DT_RESOURCE
+        }
+        output_arg {
+          name: "value"
+          type_attr: "dtype"
+        }
+        attr {
+          name: "dtype"
+          type: "type"
+        }
+        is_stateful: true
+      }
+      op {
+        name: "StatefulPartitionedCall"
+        input_arg {
+          name: "args"
+          type_list_attr: "Tin"
+        }
+        output_arg {
+          name: "output"
+          type_list_attr: "Tout"
+        }
+        attr {
+          name: "Tin"
+          type: "list(type)"
+          has_minimum: true
+        }
+        attr {
+          name: "Tout"
+          type: "list(type)"
+          has_minimum: true
+        }
+        attr {
+          name: "f"
+          type: "func"
+        }
+        attr {
+          name: "config"
+          type: "string"
+          default_value {
+            s: ""
+          }
+        }
+        attr {
+          name: "config_proto"
+          type: "string"
+          default_value {
+            s: ""
+          }
+        }
+        attr {
+          name: "executor_type"
+          type: "string"
+          default_value {
+            s: ""
+          }
+        }
+        is_stateful: true
+      }
+      op {
+        name: "VarHandleOp"
+        output_arg {
+          name: "resource"
+          type: DT_RESOURCE
+        }
+        attr {
+          name: "container"
+          type: "string"
+          default_value {
+            s: ""
+          }
+        }
+        attr {
+          name: "shared_name"
+          type: "string"
+          default_value {
+            s: ""
+          }
+        }
+        attr {
+          name: "dtype"
+          type: "type"
+        }
+        attr {
+          name: "shape"
+          type: "shape"
+        }
+        attr {
+          name: "allowed_devices"
+          type: "list(string)"
+          default_value {
+            list {
+            }
+          }
+        }
+        is_stateful: true
+      }
+    }
+    tags: "serve"
+    tensorflow_version: "1.15.0"
+    tensorflow_git_version: "unknown"
+    stripped_default_attrs: true
+  }
+  graph_def { node {
+  name: "Input"
+  op: "Placeholder"
+  attr {
+    key: "dtype"
+    value {
+      type: DT_INT64
+    }
+  }
+  attr {
+    key: "shape"
+    value {
+      shape {
+        dim {
+          size: 1
+        }
+        dim {
+          size: 87
+        }
+      }
+    }
+  }
+}
+node {
+  name: "sequential_17/dense_34/Cast"
+  op: "Cast"
+  input: "Input"
+  attr {
+    key: "DstT"
+    value {
+      type: DT_FLOAT
+    }
+  }
+  attr {
+    key: "SrcT"
+    value {
+      type: DT_INT64
+    }
+  }
+  attr {
+    key: "Truncate"
+    value {
+      b: false
+    }
+  }
+}
+node {
+  name: "sequential_17/dense_34/MatMul/ReadVariableOp/resource"
+  op: "Const"
+  attr {
+    key: "dtype"
+    value {
+      type: DT_FLOAT
+    }
+  }
+  attr {
+    key: "value"
+    value {
+      tensor {
+        dtype: DT_FLOAT
+        tensor_shape {
+          dim {
+            size: 87
+          }
+          dim {
+            size: 3
+          }
+        }
+        tensor_content: "\367\271\214>\225\004\312<\260Ty\276\375\021\\>~)\212<\033B\327=\236+\000=\255x3?\224_\262\276p\353\206\275\272\036\'\275\251E\303<.\265\277>\317)\205\275<\025\234\276\216\241!\276\030^D\276\312jA\274h\244F\275Ii\341\275Tk\037>ze\237\277\327p+>\224/\216=\323\201\250\276\245\251\213\275\246\"c=\354\272t\275\'1\346\275\260\271\261=\252\214\034?\304E\261\275\367\374\224\277\364~/\275\013\177\026\276\372\023\241\276 Z\034>\357\354\353<Q\201\261\275I\375\352\275\346\365\233\276)\202\216\276\225\347\261\274%\323\213;\267\366\255<\364s\027\276o\230/\275-\221;\275\373]\021?E+\330>\331F\227?\217\326\245>\343\226\354>.S\250\276\375n\236?|\241z@B\311\004\276\300\356\331=\346uk>\363\360\032\276(D+>>\321&>\000\3538\273\222\273\243\275\255\356\206?\2368\264<\356\236\205=2\034\324>\217\310\313>\331\253\325\275\350\317\216>\223\365g>\362A\200>\373&\246>\336D\022>[\215\355==\033\264>#\253\320>\235\336v>\315)\330<\254\0215\273\361E*\276\256\253l><Gl=&\257\255?P.\265>&\362\000>\311\222\336=V\346l>8\310O\276~\320c>\201\244\273>X\304=>\212s\210=dZ\034>\307/\336=\330\031B\276\260\253\013?s,\t=\315\255\243>8(\240>\341\334\233<\220\237\320=|\3444\276\367\350`\276!\235\243>\202\260z>(UG\276\326\331\276>\210W\264>*\'=\275\245\'\363>\235\217\024?\332\2172\276\2302\261>\242L\332>\242\351\231\276\310T,\276\316\346\220>\214`\235=\026\270\312=\220\326\033?\207\203\267\276\352\312\370=\204|\353>\r\215!>\3306!@m#\003\301S[B>\335\020\251>\205`\253>;\226\n>\346v\200<\344\017\235>\224\211\276\276\257=\371\275\260\252\222>Cu\">\276\362`\276\304\200\326=\376\2624\276QP\027>\225\030\203?\024\312=>\241zL>\307DG?\234\360P>F;\302\274E\221\020?\']\253>\200\004\t\276\212\305\252>\214\247\275\276\300\377\203?\352<F?@TS\276\t\214\004=\252\327\274>\242\277\235>\350 V\300\007g\246>\272\2246>\345\310A\300g\373\331>\311dP\276\3543\222\276\365\023\240>\376+\213\275R\240K=\206\007\340>\274S\220>\315\231S\277(N\217>C\037\027\276\365\326\247>\251;Y?\222lr>^l\030?\243\245\211>c\306\237>\230\006\334\277\202\312\n?-\361\307\276R\216D>vh\301>p\351\375=\222\004&\277\004\342\234>\334\347\355=\270\224\375=\200]<<\254\341t\2760.\320\274\320\374{\276\250\300m>6x\256\275\220AV>\324+u>\"t\304>M\032\203>\263\205\223\274\037\001\231>\220Q\036>\230\212\241\275\036\002\215\277\315\030\224>\311\246\266>\231d4\277<w\245>\030\305\003\275\032\207\351\276$\016\275>\236-\326>\202\306D\276\234\264)\276\344\177\274=_VX\2760\375\373\274\340\000o<r\205\201>\200E\240\276f]\330\275\000\220\3259\354Sq>i\013o\276$\313X>\000\006\356>\010\023\347=RL\023\276\343\372\253>\r\306`\276\371#r\277o\344!<\250;\254=\254R\323>N\231*>=\212\217=\227\215\300?e\356\020?\'\2352=\376\002\337\275p\373r>\366Y\263=K4\214?\027\"K\274\273\2738=.g\317\275\243R^\276\246\000M>\366\366\240\275\023GU\276\020e\025\275\310\034\026\274\347\357\243>\226\214\233\276\265\354\343>G\274\213>/\370\010?H\316\267<]W\201<\003;\357\273"
+      }
+    }
+  }
+}
+node {
+  name: "sequential_17/dense_34/MatMul/ReadVariableOp"
+  op: "Identity"
+  input: "sequential_17/dense_34/MatMul/ReadVariableOp/resource"
+  attr {
+    key: "T"
+    value {
+      type: DT_FLOAT
+    }
+  }
+}
+node {
+  name: "sequential_17/dense_34/MatMul"
+  op: "MatMul"
+  input: "sequential_17/dense_34/Cast"
+  input: "sequential_17/dense_34/MatMul/ReadVariableOp"
+  attr {
+    key: "T"
+    value {
+      type: DT_FLOAT
+    }
+  }
+  attr {
+    key: "transpose_a"
+    value {
+      b: false
+    }
+  }
+  attr {
+    key: "transpose_b"
+    value {
+      b: false
+    }
+  }
+}
+node {
+  name: "sequential_17/dense_34/BiasAdd/ReadVariableOp/resource"
+  op: "Const"
+  attr {
+    key: "dtype"
+    value {
+      type: DT_FLOAT
+    }
+  }
+  attr {
+    key: "value"
+    value {
+      tensor {
+        dtype: DT_FLOAT
+        tensor_shape {
+          dim {
+            size: 3
+          }
+        }
+        tensor_content: "UGA?\336\241\214@\243\377t\276"
+      }
+    }
+  }
+}
+node {
+  name: "sequential_17/dense_34/BiasAdd/ReadVariableOp"
+  op: "Identity"
+  input: "sequential_17/dense_34/BiasAdd/ReadVariableOp/resource"
+  attr {
+    key: "T"
+    value {
+      type: DT_FLOAT
+    }
+  }
+}
+node {
+  name: "sequential_17/dense_34/BiasAdd"
+  op: "BiasAdd"
+  input: "sequential_17/dense_34/MatMul"
+  input: "sequential_17/dense_34/BiasAdd/ReadVariableOp"
+  attr {
+    key: "T"
+    value {
+      type: DT_FLOAT
+    }
+  }
+  attr {
+    key: "data_format"
+    value {
+      s: "NHWC"
+    }
+  }
+}
+node {
+  name: "sequential_17/dense_34/Relu"
+  op: "Relu"
+  input: "sequential_17/dense_34/BiasAdd"
+  attr {
+    key: "T"
+    value {
+      type: DT_FLOAT
+    }
+  }
+}
+node {
+  name: "sequential_17/dense_35/MatMul/ReadVariableOp/resource"
+  op: "Const"
+  attr {
+    key: "dtype"
+    value {
+      type: DT_FLOAT
+    }
+  }
+  attr {
+    key: "value"
+    value {
+      tensor {
+        dtype: DT_FLOAT
+        tensor_shape {
+          dim {
+            size: 3
+          }
+          dim {
+            size: 1
+          }
+        }
+        tensor_content: "uD\200?)\261\237\277\033\006\021?"
+      }
+    }
+  }
+}
+node {
+  name: "sequential_17/dense_35/MatMul/ReadVariableOp"
+  op: "Identity"
+  input: "sequential_17/dense_35/MatMul/ReadVariableOp/resource"
+  attr {
+    key: "T"
+    value {
+      type: DT_FLOAT
+    }
+  }
+}
+node {
+  name: "sequential_17/dense_35/MatMul"
+  op: "MatMul"
+  input: "sequential_17/dense_34/Relu"
+  input: "sequential_17/dense_35/MatMul/ReadVariableOp"
+  attr {
+    key: "T"
+    value {
+      type: DT_FLOAT
+    }
+  }
+  attr {
+    key: "transpose_a"
+    value {
+      b: false
+    }
+  }
+  attr {
+    key: "transpose_b"
+    value {
+      b: false
+    }
+  }
+}
+node {
+  name: "sequential_17/dense_35/BiasAdd/ReadVariableOp/resource"
+  op: "Const"
+  attr {
+    key: "dtype"
+    value {
+      type: DT_FLOAT
+    }
+  }
+  attr {
+    key: "value"
+    value {
+      tensor {
+        dtype: DT_FLOAT
+        tensor_shape {
+          dim {
+            size: 1
+          }
+        }
+        float_val: -0.4775741696357727
+      }
+    }
+  }
+}
+node {
+  name: "sequential_17/dense_35/BiasAdd/ReadVariableOp"
+  op: "Identity"
+  input: "sequential_17/dense_35/BiasAdd/ReadVariableOp/resource"
+  attr {
+    key: "T"
+    value {
+      type: DT_FLOAT
+    }
+  }
+}
+node {
+  name: "sequential_17/dense_35/BiasAdd"
+  op: "BiasAdd"
+  input: "sequential_17/dense_35/MatMul"
+  input: "sequential_17/dense_35/BiasAdd/ReadVariableOp"
+  attr {
+    key: "T"
+    value {
+      type: DT_FLOAT
+    }
+  }
+  attr {
+    key: "data_format"
+    value {
+      s: "NHWC"
+    }
+  }
+}
+node {
+  name: "sequential_17/dense_35/Sigmoid"
+  op: "Sigmoid"
+  input: "sequential_17/dense_35/BiasAdd"
+  attr {
+    key: "T"
+    value {
+      type: DT_FLOAT
+    }
+  }
+}
+node {
+  name: "Identity"
+  op: "Identity"
+  input: "sequential_17/dense_35/Sigmoid"
+  attr {
+    key: "T"
+    value {
+      type: DT_FLOAT
+    }
+  }
+}
+versions {
+  producer: 414
+}
+ }
+  signature_def {
+    key: "predict"
+    value {
+      inputs {
+        key: "Input"
+        value {
+          name: "Input:0"
+          dtype: DT_INT64
+          tensor_shape {
+            dim {
+              size: 1
+            }
+            dim {
+              size: 87
+            }
+          }
+        }
+      }
+      outputs {
+        key: "prob"
+        value {
+          name: "Identity:0"
+          dtype: DT_FLOAT
+          tensor_shape {
+            dim {
+              size: 1
+            }
+            dim {
+              size: 1
+            }
+          }
+        }
+      }
+      method_name: "tensorflow/serving/predict"
+    }
+  }
+}

@@ -22,6 +22,7 @@ FunctionPropertiesInfo::getFunctionPropertiesInfo(const Function &F,
                                                   const LoopInfo &LI) {
 
   FunctionPropertiesInfo FPI;
+  FPI.OpCodeCount.fill(0);
 
   FPI.Uses = ((!F.hasLocalLinkage()) ? 1 : 0) + F.getNumUses();
   FPI.InstructionCount = F.getInstructionCount();
@@ -146,6 +147,11 @@ FunctionPropertiesInfo
 FunctionPropertiesAnalysis::run(Function &F, FunctionAnalysisManager &FAM) {
   return FunctionPropertiesInfo::getFunctionPropertiesInfo(
       F, FAM.getResult<LoopAnalysis>(F));
+}
+
+FunctionPropertiesSmall
+FunctionPropertiesSmallAnalysis::run(Function &F, FunctionAnalysisManager &FAM) {
+  return FunctionPropertiesSmall::getFunctionPropertiesInfo(F);
 }
 
 PreservedAnalyses
