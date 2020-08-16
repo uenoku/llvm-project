@@ -1020,14 +1020,15 @@ private:
   bool DebugLogging;
 };
 
-AnalysisManager<Function> &getFAM(AnalysisManager<Module>&, Module &M);
+AnalysisManager<Function> &getFAM(AnalysisManager<Module> &, Module &M);
 
-
-template<>
-void inline AnalysisManager<Module>::registerResult(Module &M, const PreservedAnalyses &PA, StringRef Pass) {
+template <>
+void inline AnalysisManager<Module>::registerResult(Module &M,
+                                                    const PreservedAnalyses &PA,
+                                                    StringRef Pass) {
   AnalysisManager<Function> &FAM = getFAM(*this, M);
-  for(Function& F: M)
-      FAM.registerResult(F, PA, Pass); 
+  for (Function &F : M)
+    FAM.registerResult(F, PA, Pass);
 }
 
 extern template class AnalysisManager<Module>;

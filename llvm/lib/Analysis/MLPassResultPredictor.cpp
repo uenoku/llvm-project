@@ -115,25 +115,27 @@ bool MLPassResultPredictor<Module, ModuleAnalysisManager>::predict(
 template <>
 bool MLPassResultPredictor<Function, FunctionAnalysisManager>::predict(
     PredictorInput *In, LLVMContext &Ctx) {
-  // dbgs() << "Prediction try"
-  //        << "\n";
+  dbgs() << "Prediction try"
+         << "\n";
   if (!In)
     return true;
-  // dbgs() << "Prediction Running"
-  //        << "\n";
+    // dbgs() << "Prediction Running"
+    //        << "\n";
+#ifndef SIMPLE_LOG
   if (In->PassName == "FunctionToLoopPassAdaptor<llvm::LICMPass>") {
     auto res = predict_LICM(In->Features);
-//    (res ? NumPredictLICMTrue : NumPredictLICMFalse)++;
+    //    (res ? NumPredictLICMTrue : NumPredictLICMFalse)++;
     return res;
   }
   if (In->PassName == "FunctionToLoopPassAdaptor<llvm::LoopRotatePass>") {
     auto res = predict_LoopRotatePass(In->Features);
-//    (res ? NumPredictLoopRotatePassTrue : NumPredictLoopRotatePassFalse)++;
+    //    (res ? NumPredictLoopRotatePassTrue :
+    //    NumPredictLoopRotatePassFalse)++;
     return res;
   }
   if (In->PassName == "GVN") {
     auto res = predict_GVN(In->Features);
-//    (res ? NumPredictGVNTrue : NumPredictGVNFalse)++;
+    //    (res ? NumPredictGVNTrue : NumPredictGVNFalse)++;
     return res;
   }
   if (In->PassName == "ReassociatePass")
@@ -142,8 +144,110 @@ bool MLPassResultPredictor<Function, FunctionAnalysisManager>::predict(
     return predict_ReassociatePass(In->Features);
   if (In->PassName == "InstSimplifyPass")
     return predict_InstSimplifyPass(In->Features);
-  return true;
-  // FunctionPassResultPredictionModel *Pred = Ctx.getPredictor();
+#else
+  auto Models = Ctx.getPredictor();
+  if (!Models) {
+    Ctx.setPredictor(std::make_unique<FunctionPassResultPredictionModel>());
+    Models = Ctx.getPredictor();
+  }
+  auto Model = Models->get(In->PassName.str(), Ctx);
+  dbgs() << "Trying to fetch model" << In->PassName.str() << " " << (bool)Model
+         << "\n";
+  if (!Model)
+    return true;
+  {
+    FunctionPropertiesInfo &FPI = In->Features;
+    Model->setFeature(0, FPI.BasicBlockCount);
+    Model->setFeature(1, FPI.BasicBlockWithMoreThanTwoPredecessors);
+    Model->setFeature(2, FPI.BasicBlockWithMoreThanTwoSuccessors);
+    Model->setFeature(3, FPI.BasicBlockWithSinglePredecessor);
+    Model->setFeature(4, FPI.BasicBlockWithSingleSuccessor);
+    Model->setFeature(5, FPI.BasicBlockWithTwoPredecessors);
+    Model->setFeature(6, FPI.BasicBlockWithTwoSuccessors);
+    Model->setFeature(7, FPI.BigBasicBlock);
+    Model->setFeature(8, FPI.BlocksReachedFromConditionalInstruction);
+    Model->setFeature(9, FPI.CastInstCount);
+    Model->setFeature(10, FPI.DirectCallsToDefinedFunctions);
+    Model->setFeature(11, FPI.FloatingConstantOccurrences);
+    Model->setFeature(12, FPI.FloatingPointInstCount);
+    Model->setFeature(13, FPI.InstructionCount);
+    Model->setFeature(14, FPI.IntegerConstantOccurrences);
+    Model->setFeature(15, FPI.IntegerInstCount);
+    Model->setFeature(16, FPI.MaxLoopDepth);
+    Model->setFeature(17, FPI.MediumBasicBlock);
+    Model->setFeature(18, FPI.OpCodeCount[1]);
+    Model->setFeature(19, FPI.OpCodeCount[10]);
+    Model->setFeature(20, FPI.OpCodeCount[11]);
+    Model->setFeature(21, FPI.OpCodeCount[12]);
+    Model->setFeature(22, FPI.OpCodeCount[13]);
+    Model->setFeature(23, FPI.OpCodeCount[14]);
+    Model->setFeature(24, FPI.OpCodeCount[15]);
+    Model->setFeature(25, FPI.OpCodeCount[16]);
+    Model->setFeature(26, FPI.OpCodeCount[17]);
+    Model->setFeature(27, FPI.OpCodeCount[18]);
+    Model->setFeature(28, FPI.OpCodeCount[19]);
+    Model->setFeature(29, FPI.OpCodeCount[2]);
+    Model->setFeature(30, FPI.OpCodeCount[20]);
+    Model->setFeature(31, FPI.OpCodeCount[21]);
+    Model->setFeature(32, FPI.OpCodeCount[22]);
+    Model->setFeature(33, FPI.OpCodeCount[23]);
+    Model->setFeature(34, FPI.OpCodeCount[24]);
+    Model->setFeature(35, FPI.OpCodeCount[25]);
+    Model->setFeature(36, FPI.OpCodeCount[26]);
+    Model->setFeature(37, FPI.OpCodeCount[27]);
+    Model->setFeature(38, FPI.OpCodeCount[28]);
+    Model->setFeature(39, FPI.OpCodeCount[29]);
+    Model->setFeature(40, FPI.OpCodeCount[3]);
+    Model->setFeature(41, FPI.OpCodeCount[30]);
+    Model->setFeature(42, FPI.OpCodeCount[31]);
+    Model->setFeature(43, FPI.OpCodeCount[32]);
+    Model->setFeature(44, FPI.OpCodeCount[33]);
+    Model->setFeature(45, FPI.OpCodeCount[34]);
+    Model->setFeature(46, FPI.OpCodeCount[35]);
+    Model->setFeature(47, FPI.OpCodeCount[36]);
+    Model->setFeature(48, FPI.OpCodeCount[37]);
+    Model->setFeature(49, FPI.OpCodeCount[38]);
+    Model->setFeature(50, FPI.OpCodeCount[39]);
+    Model->setFeature(51, FPI.OpCodeCount[4]);
+    Model->setFeature(52, FPI.OpCodeCount[40]);
+    Model->setFeature(53, FPI.OpCodeCount[41]);
+    Model->setFeature(54, FPI.OpCodeCount[42]);
+    Model->setFeature(55, FPI.OpCodeCount[43]);
+    Model->setFeature(56, FPI.OpCodeCount[44]);
+    Model->setFeature(57, FPI.OpCodeCount[45]);
+    Model->setFeature(58, FPI.OpCodeCount[46]);
+    Model->setFeature(59, FPI.OpCodeCount[47]);
+    Model->setFeature(60, FPI.OpCodeCount[48]);
+    Model->setFeature(61, FPI.OpCodeCount[49]);
+    Model->setFeature(62, FPI.OpCodeCount[5]);
+    Model->setFeature(63, FPI.OpCodeCount[50]);
+    Model->setFeature(64, FPI.OpCodeCount[51]);
+    Model->setFeature(65, FPI.OpCodeCount[52]);
+    Model->setFeature(66, FPI.OpCodeCount[53]);
+    Model->setFeature(67, FPI.OpCodeCount[54]);
+    Model->setFeature(68, FPI.OpCodeCount[55]);
+    Model->setFeature(69, FPI.OpCodeCount[56]);
+    Model->setFeature(70, FPI.OpCodeCount[57]);
+    Model->setFeature(71, FPI.OpCodeCount[58]);
+    Model->setFeature(72, FPI.OpCodeCount[59]);
+    Model->setFeature(73, FPI.OpCodeCount[6]);
+    Model->setFeature(74, FPI.OpCodeCount[60]);
+    Model->setFeature(75, FPI.OpCodeCount[61]);
+    Model->setFeature(76, FPI.OpCodeCount[62]);
+    Model->setFeature(77, FPI.OpCodeCount[63]);
+    Model->setFeature(78, FPI.OpCodeCount[64]);
+    Model->setFeature(79, FPI.OpCodeCount[65]);
+    Model->setFeature(80, FPI.OpCodeCount[66]);
+    Model->setFeature(81, FPI.OpCodeCount[7]);
+    Model->setFeature(82, FPI.OpCodeCount[8]);
+    Model->setFeature(83, FPI.OpCodeCount[9]);
+    Model->setFeature(84, FPI.SmallBasicBlock);
+    Model->setFeature(85, FPI.TopLevelLoopCount);
+    Model->setFeature(86, FPI.Uses);
+  }
+  auto res = Model->run();
+  dbgs() << "Prediction Result" << In->PassName.str() << " " << res << "\n";
+  return res;
   // if (!Pred->PassNameToModel.count(In->PassName.str()))
   //   return true;
   // MLModelRunner *Model = Pred->PassNameToModel[In->PassName.str()];
@@ -152,6 +256,8 @@ bool MLPassResultPredictor<Function, FunctionAnalysisManager>::predict(
   // Model->setFeature((size_t)PassResultPredictionFeatureIndex::InstructionCount,
   //                   In->Features.InstructionCount);
   //  return Model->run();
+#endif
+  return true;
 }
 
 template <>
@@ -160,7 +266,19 @@ MLPassResultPredictor<Module, ModuleAnalysisManager>::createInput(
     Module &IR, ModuleAnalysisManager &FAM, StringRef PassName) {
   return nullptr;
 }
-
+static const std::string registered[] = {"SROA",
+                                         "LoopUnrollPass",
+                                         "LoopSimplifyPass",
+                                         "BDCEPass",
+                                         "EarlyCSEPass",
+                                         "JumpThreadingPass",
+                                         "TailCallElimPass",
+                                         "SLPVectorizerPass",
+                                         "LCSSAPass",
+                                         "SimplifyCFGPass",
+                                         "InstSimplifyPass", 
+                                         "GVN"
+                                         };
 template <>
 PredictorInput *
 MLPassResultPredictor<Function, FunctionAnalysisManager>::createInput(
@@ -168,6 +286,7 @@ MLPassResultPredictor<Function, FunctionAnalysisManager>::createInput(
   if (!RunPrediction)
     return nullptr;
   // dbgs() << "HOGE" << PassName << "\n";
+#ifdef SIMPLE_LOG
   if (PassName == "FunctionToLoopPassAdaptor<llvm::LICMPass>" ||
       PassName == "FunctionToLoopPassAdaptor<llvm::LoopRotatePass>" ||
       PassName == "GVN" || PassName == "SROA" ||
@@ -176,6 +295,14 @@ MLPassResultPredictor<Function, FunctionAnalysisManager>::createInput(
     FunctionPropertiesAnalysis::Result Result = Ana.run(IR, FAM);
     return new PredictorInput{Result, FAM.PassResults[&IR], PassName};
   }
+#else
+  for (int i = 0; i < 12; i++)
+    if (registered[i] == PassName) {
+      FunctionPropertiesAnalysis Ana;
+      FunctionPropertiesAnalysis::Result Result = Ana.run(IR, FAM);
+      return new PredictorInput{Result, FAM.PassResults[&IR], PassName};
+    }
+#endif
   return nullptr;
 }
 } // namespace llvm
