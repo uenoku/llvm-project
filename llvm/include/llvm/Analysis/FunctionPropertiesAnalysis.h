@@ -83,7 +83,35 @@ public:
   int64_t IntegerConstantOccurrences = 0;
   int64_t FloatingConstantOccurrences = 0;
 
-  std::array<int64_t, 70> OpCodeCount;
+  std::array<int64_t, 70> OpCodeCount = {0};
+};
+
+class FunctionPropertiesSmall {
+public:
+  static FunctionPropertiesSmall getFunctionPropertiesSmall(const Function &F, const LoopInfo &LI);
+
+  /// Number of all instuctions
+  int64_t InstructionCount = 0;
+
+  int64_t BasicBlockWithSingleSuccessor = 0;
+  int64_t BasicBlockWithSinglePredecessor = 0;
+
+  // Number of basic blocks with more than 500 instructions
+  int64_t IntegerInstCount = 0;
+  int64_t IntegerConstantOccurrences = 0;
+  int64_t Store = 0;
+  int64_t Call = 0;
+  int64_t PHI = 0;
+  int64_t Load = 0;
+  int64_t Alloca = 0;
+  int64_t GEP = 0;
+  int64_t MaxLoopDepth = 0;
+  int64_t TopLevelLoopCount = 0;
+  int64_t BasicBlockCount = 0;
+
+//  std::array<int64_t, 70> OpCodeCount = {0};
+  json::Value toJSON() const;
+
 };
 
 // Analysis pass
@@ -94,6 +122,18 @@ public:
   static AnalysisKey Key;
 
   using Result = FunctionPropertiesInfo;
+
+  Result run(Function &F, FunctionAnalysisManager &FAM);
+};
+
+// Analysis pass
+class FunctionPropertiesSmallAnalysis
+    : public AnalysisInfoMixin<FunctionPropertiesSmall> {
+
+public:
+  static AnalysisKey Key;
+
+  using Result = FunctionPropertiesSmall;
 
   Result run(Function &F, FunctionAnalysisManager &FAM);
 };

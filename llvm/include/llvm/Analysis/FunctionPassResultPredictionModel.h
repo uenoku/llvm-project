@@ -50,7 +50,7 @@ template<class T>
 class ModelImpl:  public PassResultPredictionModelRunner {
 public:
   ModelImpl(LLVMContext &Ctx): PassResultPredictionModelRunner(Ctx), CompiledModel(std::make_unique<T>()){
-    dbgs()<< "Init\n";
+    // dbgs()<< "Init\n";
     assert(CompiledModel && "CompiledModel should be valid");
   };
   ~ModelImpl() = default;
@@ -64,7 +64,7 @@ public:
   bool run() override {
       CompiledModel->Run();
       auto res = CompiledModel->result0(0, 0);
-      dbgs() << "RawValue" << " " << res << "\n";
+      // dbgs() << "RawValue" << " " << res << "\n";
       return res > 0.5;
   }
   int64_t getFeature(int Index) const override {

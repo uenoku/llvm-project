@@ -62,8 +62,15 @@ STATISTIC(NumPredictLoopRotatePassFalse,
 STATISTIC(NumPredictLoopRotatePassTrue,
           "Number of prediction of true for LoopRotate");
 
+// #define SIMPLE_LOG
+
+#ifdef SIMPLE_LOG
+using FuncPropType = FunctionPropertiesAnalysis;
+#else
+using FuncPropType = FunctionPropertiesSmallAnalysis;
+#endif
 struct PredictorInput {
-  FunctionPropertiesAnalysis::Result Features;
+  FuncPropType::Result Features;
   std::vector<std::pair<StringRef, bool>> PassResults;
   StringRef PassName;
   json::Value toJSON() const {
@@ -115,13 +122,15 @@ bool MLPassResultPredictor<Module, ModuleAnalysisManager>::predict(
 template <>
 bool MLPassResultPredictor<Function, FunctionAnalysisManager>::predict(
     PredictorInput *In, LLVMContext &Ctx) {
-  dbgs() << "Prediction try"
-         << "\n";
+  // dbgs() << "Prediction try"
+  //        << "\n";
   if (!In)
     return true;
     // dbgs() << "Prediction Running"
     //        << "\n";
-#ifndef SIMPLE_LOG
+#ifdef SIMPLE_LOG
+
+  std::cerr << "RUN SIMPLE LOG" << std::endl;
   if (In->PassName == "FunctionToLoopPassAdaptor<llvm::LICMPass>") {
     auto res = predict_LICM(In->Features);
     //    (res ? NumPredictLICMTrue : NumPredictLICMFalse)++;
@@ -151,12 +160,13 @@ bool MLPassResultPredictor<Function, FunctionAnalysisManager>::predict(
     Models = Ctx.getPredictor();
   }
   auto Model = Models->get(In->PassName.str(), Ctx);
-  dbgs() << "Trying to fetch model" << In->PassName.str() << " " << (bool)Model
-         << "\n";
+  // dbgs() << "Trying to fetch model" << In->PassName.str() << " " << (bool)Model
+  //        << "\n";
   if (!Model)
     return true;
   {
-    FunctionPropertiesInfo &FPI = In->Features;
+    auto &FPI = In->Features;
+#ifdef USE_NORMAL
     Model->setFeature(0, FPI.BasicBlockCount);
     Model->setFeature(1, FPI.BasicBlockWithMoreThanTwoPredecessors);
     Model->setFeature(2, FPI.BasicBlockWithMoreThanTwoSuccessors);
@@ -244,9 +254,25 @@ bool MLPassResultPredictor<Function, FunctionAnalysisManager>::predict(
     Model->setFeature(84, FPI.SmallBasicBlock);
     Model->setFeature(85, FPI.TopLevelLoopCount);
     Model->setFeature(86, FPI.Uses);
+  #else
+  Model->setFeature(0, FPI.BasicBlockCount);
+  Model->setFeature(1, FPI.IntegerConstantOccurrences);
+  Model->setFeature(2, FPI.BasicBlockWithSingleSuccessor);
+  Model->setFeature(3, FPI.GEP);
+  Model->setFeature(4, FPI.MaxLoopDepth);
+  Model->setFeature(5, FPI.Call);
+  Model->setFeature(6, FPI.Alloca);
+  Model->setFeature(7, FPI.Store);
+  Model->setFeature(8, FPI.TopLevelLoopCount);
+  Model->setFeature(9, FPI.IntegerInstCount);
+  Model->setFeature(10, FPI.PHI);
+  Model->setFeature(11, FPI.BasicBlockWithSinglePredecessor);
+  Model->setFeature(12, FPI.Load);
+  Model->setFeature(13, FPI.InstructionCount);
+  #endif
   }
   auto res = Model->run();
-  dbgs() << "Prediction Result" << In->PassName.str() << " " << res << "\n";
+  // dbgs() << "Prediction Result" << In->PassName.str() << " " << res << "\n";
   return res;
   // if (!Pred->PassNameToModel.count(In->PassName.str()))
   //   return true;
@@ -298,8 +324,8 @@ MLPassResultPredictor<Function, FunctionAnalysisManager>::createInput(
 #else
   for (int i = 0; i < 12; i++)
     if (registered[i] == PassName) {
-      FunctionPropertiesAnalysis Ana;
-      FunctionPropertiesAnalysis::Result Result = Ana.run(IR, FAM);
+      FunctionPropertiesSmallAnalysis Ana;
+      FunctionPropertiesSmallAnalysis::Result Result = Ana.run(IR, FAM);
       return new PredictorInput{Result, FAM.PassResults[&IR], PassName};
     }
 #endif
