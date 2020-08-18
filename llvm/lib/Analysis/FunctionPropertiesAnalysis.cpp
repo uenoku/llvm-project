@@ -97,6 +97,72 @@ FunctionPropertiesInfo::getFunctionPropertiesInfo(const Function &F,
   return FPI;
 }
 
+FunctionPropertiesSmall
+FunctionPropertiesSmall::getFunctionPropertiesSmall(const Function &F, const LoopInfo&LI) {
+
+  FunctionPropertiesSmall FPI;
+  FPI.InstructionCount = F.getInstructionCount();
+  for (const auto &BB : F) {
+    unsigned SuccSize = succ_size(&BB);
+    unsigned PredSize = pred_size(&BB);
+
+    FPI.BasicBlockCount += 1;
+    if (SuccSize == 1)
+      ++FPI.BasicBlockWithSingleSuccessor;
+
+    if (PredSize == 1)
+      ++FPI.BasicBlockWithSinglePredecessor;
+
+    for (const auto &I : BB) {
+
+      if (I.isBinaryOp() && I.getType()->isIntegerTy())
+        ++FPI.IntegerInstCount;
+
+      for (unsigned int i = 0; i < I.getNumOperands(); i++)
+        if (auto *C = dyn_cast<Constant>(I.getOperand(i))) {
+          if (C->getType()->isIntegerTy())
+            ++FPI.IntegerConstantOccurrences;
+        }
+
+      switch (I.getOpcode()) {
+      case Instruction::Load:
+        ++FPI.Load;
+        break;
+      case Instruction::Store:
+        ++FPI.Store;
+        break;
+      case Instruction::PHI:
+        ++FPI.PHI;
+        break;
+      case Instruction::GetElementPtr:
+        ++FPI.GEP;
+        break;
+      case Instruction::Call:
+        ++FPI.GEP;
+        break;
+      case Instruction::Alloca:
+        ++FPI.GEP;
+        break;
+      default:
+        break;
+      }
+    }
+
+    // Loop Depth of the Basic Block
+    int64_t LoopDepth;
+    LoopDepth = LI.getLoopDepth(&BB);
+    if (FPI.MaxLoopDepth < LoopDepth)
+      FPI.MaxLoopDepth = LoopDepth;
+  }
+  FPI.TopLevelLoopCount += llvm::size(LI);
+  return FPI;
+}
+
+
+json::Value FunctionPropertiesSmall::toJSON() const {
+  json::Object obj;
+  return obj;
+}
 json::Value FunctionPropertiesInfo::toJSON() const {
 #define REGISTER(VAR, NAME) VAR[#NAME] = NAME;
   json::Object obj;
@@ -124,7 +190,7 @@ json::Value FunctionPropertiesInfo::toJSON() const {
 #undef REGISTER
   for (unsigned int i = 1; i < 67; i++) {
     // obj["OpCode_" + std::string(Instruction::getOpcodeName(i))] =
-//    OpCodeCount[i];
+    //    OpCodeCount[i];
     obj["OpCodeCount_" + std::to_string(i)] = OpCodeCount[i];
   }
   return obj;
@@ -150,8 +216,9 @@ FunctionPropertiesAnalysis::run(Function &F, FunctionAnalysisManager &FAM) {
 }
 
 FunctionPropertiesSmall
-FunctionPropertiesSmallAnalysis::run(Function &F, FunctionAnalysisManager &FAM) {
-  return FunctionPropertiesSmall::getFunctionPropertiesInfo(F);
+FunctionPropertiesSmallAnalysis::run(Function &F,
+                                     FunctionAnalysisManager &FAM) {
+  return FunctionPropertiesSmall::getFunctionPropertiesSmall(F, FAM.getResult<LoopAnalysis>(F));
 }
 
 PreservedAnalyses

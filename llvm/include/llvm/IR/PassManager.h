@@ -459,15 +459,13 @@ getAnalysisResult(AnalysisManager<IRUnitT, AnalysisArgTs...> &AM, IRUnitT &IR,
 }
 
 } // namespace detail
-template<typename P> bool isDeclaration(P&IR);
-template<> bool inline isDeclaration<Function>(Function&F) {
-//  dbgs() << "check declaration \n";
+template <typename P> bool isDeclaration(P &IR);
+template <> bool inline isDeclaration<Function>(Function &F) {
+  //  dbgs() << "check declaration \n";
   return F.isDeclaration();
 }
 
-template<> bool inline isDeclaration<Module>(Module&) {
-  return false;
-}
+template <> bool inline isDeclaration<Module>(Module &) { return false; }
 
 // Forward declare the pass instrumentation analysis explicitly queried in
 // generic PassManager code.
@@ -820,11 +818,12 @@ public:
     const AnalysisResultMapT &Results;
   };
 
-  void registerResult(IRUnitT &IR, const PreservedAnalyses &PA, StringRef Pass){
-    PassResults[&IR].push_back({Pass, !PA.areAllPreserved()}); 
+  void registerResult(IRUnitT &IR, const PreservedAnalyses &PA,
+                      StringRef Pass) {
+    // PassResults[&IR].push_back({Pass, !PA.areAllPreserved()});
   }
-   
-  std::map<IRUnitT*, std::vector<std::pair<StringRef, bool>>> PassResults;
+
+  std::map<IRUnitT *, std::vector<std::pair<StringRef, bool>>> PassResults;
 
   /// Construct an empty analysis manager.
   ///
@@ -987,8 +986,7 @@ private:
 
   /// Invalidate a function pass result.
   void invalidateImpl(AnalysisKey *ID, IRUnitT &IR) {
-    typename AnalysisResultMapT::iterator RI =
-        AnalysisResults.find({ID, &IR});
+    typename AnalysisResultMapT::iterator RI = AnalysisResults.find({ID, &IR});
     if (RI == AnalysisResults.end())
       return;
 

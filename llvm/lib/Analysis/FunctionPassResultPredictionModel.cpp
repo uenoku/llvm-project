@@ -63,13 +63,13 @@ FunctionPassResultPredictionModel::get(std::string name,
       Models[name] = std::make_unique<ModelImpl<MODELNAME>>(ctx);              \
   }
 
-  dbgs() << "[FunctionPassResultPredictionModel]:get Model " << name << "\n";
+  // dbgs() << "[FunctionPassResultPredictionModel]:get Model " << name << "\n";
   if (Models.find(name) != Models.end())
     return Models[name].get();
 
   REGISTER(SROA, SROAModel);
   REGISTER(LoopUnrollPass, LoopUnrollModel);
-  REGISTER(LoopSimplifyPass, LoopSimplifyModel);
+//   REGISTER(LoopSimplifyPass, LoopSimplifyModel);
   REGISTER(BDCEPass, BDCEModel);
   REGISTER(EarlyCSEPass, ECSEModel);
   REGISTER(JumpThreadingPass, JumpThreadingModel);
