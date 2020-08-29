@@ -3,6 +3,7 @@ if (DEFINED LLVM_HAVE_TF_AOT OR DEFINED LLVM_HAVE_TF_API)
     include(TensorFlowCompile)
 
     tfcompile(models/inliner serve action InlinerSizeModel llvm::InlinerSizeModel)
+    tfcompile(models/all_prediction serve predict AllPredictModel llvm::AllPredictModel)
     #if (DEFINED LLVM_LARGE_MODEL)
     #  tfcompile(models/models_2424/sroa serve predict SROAModel llvm::SROAModel)
     #  tfcompile(models/models_2424/bdce serve predict BDCEModel llvm::BDCEModel)
@@ -16,7 +17,6 @@ if (DEFINED LLVM_HAVE_TF_AOT OR DEFINED LLVM_HAVE_TF_API)
     #  tfcompile(models/models_2424/unroll serve predict LoopUnrollModel llvm::LoopUnrollModel)
     #  tfcompile(models/models_2424/tce serve predict TailCallEliminationModel llvm::TailCallEliminationModel)
     #endif()
-    #if (DEFINED LLVM_SMALL_MODEL)
     #  tfcompile(models/models_small/sroa serve predict SROAModel llvm::SROAModel)
     #  tfcompile(models/models_small/bdce serve predict BDCEModel llvm::BDCEModel)
     #  tfcompile(models/models_small/ecse serve predict ECSEModel llvm::ECSEModel)
@@ -29,21 +29,18 @@ if (DEFINED LLVM_HAVE_TF_AOT OR DEFINED LLVM_HAVE_TF_API)
     #  tfcompile(models/models_small/unroll serve predict LoopUnrollModel llvm::LoopUnrollModel)
     #  tfcompile(models/models_small/tce serve predict TailCallEliminationModel llvm::TailCallEliminationModel)
     #  tfcompile(models/models_small/gvn serve predict GVNModel llvm::GVNModel)
-    #endif()
-    if (DEFINED LLVM_MIN_MODEL)
-      tfcompile(models/models_min/sroa serve predict SROAModel llvm::SROAModel)
-      tfcompile(models/models_min/bdce serve predict BDCEModel llvm::BDCEModel)
-      tfcompile(models/models_min/ecse serve predict ECSEModel llvm::ECSEModel)
-      tfcompile(models/models_min/inst_simplify serve predict InstSimplifyModel llvm::InstSimplifyModel)
-      tfcompile(models/models_min/jump_threading serve predict JumpThreadingModel llvm::JumpThreadingModel)
-      tfcompile(models/models_min/lcssa serve predict LCSSAModel llvm::LCSSAModel)
-      tfcompile(models/models_min/lsimplify serve predict LoopSimplifyModel llvm::LoopSimplifyModel)
-      tfcompile(models/models_min/scfg serve predict SimplifyCFGModel llvm::SimplifyCFGModel)
-      tfcompile(models/models_min/slp_vec serve predict SLPVecModel llvm::SLPVecModel)
-      tfcompile(models/models_min/unroll serve predict LoopUnrollModel llvm::LoopUnrollModel)
-      tfcompile(models/models_min/tce serve predict TailCallEliminationModel llvm::TailCallEliminationModel)
-      tfcompile(models/models_min/gvn serve predict GVNModel llvm::GVNModel)
-    endif()
+        tfcompile(models/models_min/sroa serve predict SROAModel llvm::SROAModel)
+        tfcompile(models/models_min/bdce serve predict BDCEModel llvm::BDCEModel)
+        tfcompile(models/models_min/ecse serve predict ECSEModel llvm::ECSEModel)
+        tfcompile(models/models_min/inst_simplify serve predict InstSimplifyModel llvm::InstSimplifyModel)
+        tfcompile(models/models_min/jump_threading serve predict JumpThreadingModel llvm::JumpThreadingModel)
+        tfcompile(models/models_min/lcssa serve predict LCSSAModel llvm::LCSSAModel)
+        tfcompile(models/models_min/lsimplify serve predict LoopSimplifyModel llvm::LoopSimplifyModel)
+        tfcompile(models/models_min/scfg serve predict SimplifyCFGModel llvm::SimplifyCFGModel)
+        tfcompile(models/models_min/slp_vec serve predict SLPVecModel llvm::SLPVecModel)
+        tfcompile(models/models_min/unroll serve predict LoopUnrollModel llvm::LoopUnrollModel)
+        tfcompile(models/models_min/tce serve predict TailCallEliminationModel llvm::TailCallEliminationModel)
+        tfcompile(models/models_min/gvn serve predict GVNModel llvm::GVNModel)
 
     list(APPEND GeneratedMLSources
       $<TARGET_OBJECTS:tf_xla_runtime_objects>
@@ -138,6 +135,7 @@ add_llvm_component_library(LLVMAnalysis
   ObjCARCAnalysisUtils.cpp
   ObjCARCInstKind.cpp
   OptimizationRemarkEmitter.cpp
+  PassResultAnalysis.cpp
   PHITransAddr.cpp
   PhiValues.cpp
   PostDominators.cpp

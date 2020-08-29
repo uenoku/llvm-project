@@ -73,8 +73,8 @@ inline bool isPassManagerF(StringRef PassID) {
   return Prefix.endswith("PassManager") || Prefix.endswith("PassAdaptor") ||
          Prefix.endswith("AnalysisManagerProxy");
 }
-template <typename IR> StringRef getModuleName(IR &F);
 
+template <typename IR> StringRef getModuleName(IR &F);
 template <> inline StringRef getModuleName<Function>(Function &F) {
   return F.getParent()->getName();
 }
@@ -503,11 +503,13 @@ public:
   // duplicated code here.
   PassManager(PassManager &&Arg)
       : Passes(std::move(Arg.Passes)),
-        DebugLogging(std::move(Arg.DebugLogging)) {}
+        DebugLogging(std::move(Arg.DebugLogging)),
+        CallResult(std::move(Arg.CallResult)) {}
 
   PassManager &operator=(PassManager &&RHS) {
     Passes = std::move(RHS.Passes);
     DebugLogging = std::move(RHS.DebugLogging);
+    CallResult = std::move(RHS.CallResult);
     return *this;
   }
 
@@ -554,6 +556,7 @@ public:
     }
 
     MLPassResultPredictor<IRUnitT, AnalysisManagerT> PRP;
+    bool shouldRun = true;
 
     for (unsigned Idx = 0, Size = Passes.size(); Idx != Size; ++Idx) {
       auto *P = Passes[Idx].get();
@@ -573,18 +576,26 @@ public:
 
       {
         TimeTraceScope TimeScope(P->name(), IR.getName());
-
-        auto In = PRP.createInput(IR, AM, P->name());
-        if (PRP.predict(In, IR.getContext()))
-          PassPA = P->run(IR, AM, ExtraArgs...);
-        else
-        {
-        //  dbgs() << "Prediction false for " << P->name() << "\n";
+        if (CallResult && shouldRun) {
+          PRP.dumpAllResult(IR, AM);
+          shouldRun = false;
         }
+        if (PRP.predict_all(IR, AM, P->name())) {
+          PassPA = P->run(IR, AM, ExtraArgs...);
+        }
+        // auto In = PRP.createInput(IR, AM, P->name());
+        // if (PRP.predict(In, IR.getContext()))
+        //   PassPA = P->run(IR, AM, ExtraArgs...);
+        // else
+        // {
+        // //  dbgs() << "Prediction false for " << P->name() << "\n";
+        // }
 
-        if (!NoStore)
-          PRP.dump(IR.getName(), In, !PassPA.areAllPreserved(), *StatS2);
+        // if (!NoStore)
+        //   PRP.dump(IR.getName(), In, !PassPA.areAllPreserved(), *StatS2);
       }
+      if (!PassPA.areAllPreserved())
+        shouldRun = true;
 
       if (!NoStore) {
         auto End = std::chrono::steady_clock::now();
@@ -642,14 +653,15 @@ public:
 
   static bool isRequired() { return true; }
 
-private:
   using PassConceptT =
       detail::PassConcept<IRUnitT, AnalysisManagerT, ExtraArgTs...>;
 
   std::vector<std::unique_ptr<PassConceptT>> Passes;
 
+private:
   /// Flag indicating whether we should do debug logging.
   bool DebugLogging;
+  bool CallResult;
 };
 
 extern template class PassManager<Module>;
@@ -1341,6 +1353,7 @@ public:
     std::error_code EC2, EC1;
     PreservedAnalyses PA = PreservedAnalyses::all();
     MLPassResultPredictor<Function, FunctionAnalysisManager> PRP;
+    bool shouldRun = true;
 
     std::unique_ptr<llvm::raw_fd_ostream> StatS = nullptr;
     std::unique_ptr<llvm::raw_fd_ostream> StatS2 = nullptr;
@@ -1377,16 +1390,25 @@ public:
       PreservedAnalyses PassPA;
       {
         TimeTraceScope TimeScope(Pass.name(), F.getName());
-        auto In = PRP.createInput(F, FAM, Pass.name());
-        if (PRP.predict(In, F.getContext()))
-          PassPA = Pass.run(F, FAM);
-        else
-        {
-          // dbgs() << "Prediction false for " << Pass.name() << "\n";
+        if (shouldRun) {
+          PRP.dumpAllResult(F, FAM);
+          shouldRun = false;
         }
-        if (!NoStore)
-          PRP.dump(F.getName(), In, !PassPA.areAllPreserved(), *StatS2);
+        if (PRP.predict_all(F, FAM, Pass.name())) {
+          PassPA = Pass.run(F, FAM);
+        }
+
+        // auto In = PRP.createInput(F, FAM, Pass.name());
+        // if (PRP.predict(In, F.getContext()))
+        //   PassPA = Pass.run(F, FAM);
+        // else {
+        //   // dbgs() << "Prediction false for " << Pass.name() << "\n";
+        //        }
+        // if (!NoStore)
+        //   PRP.dump(F.getName(), In, !PassPA.areAllPreserved(), *StatS2);
       }
+      if (!PassPA.areAllPreserved())
+        shouldRun = true;
 
       auto End = std::chrono::steady_clock::now();
       std::chrono::nanoseconds t =

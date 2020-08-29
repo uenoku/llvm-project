@@ -14,7 +14,9 @@
 #include "llvm/Analysis/FunctionPropertiesAnalysis.h"
 #include "llvm/IR/CFG.h"
 #include "llvm/IR/Instructions.h"
+#include "llvm/Support/Debug.h"
 
+#define DEBUG_TYPE "pass-prop"
 using namespace llvm;
 
 FunctionPropertiesInfo
@@ -98,7 +100,8 @@ FunctionPropertiesInfo::getFunctionPropertiesInfo(const Function &F,
 }
 
 FunctionPropertiesSmall
-FunctionPropertiesSmall::getFunctionPropertiesSmall(const Function &F, const LoopInfo&LI) {
+FunctionPropertiesSmall::getFunctionPropertiesSmall(const Function &F,
+                                                    const LoopInfo &LI) {
 
   FunctionPropertiesSmall FPI;
   FPI.InstructionCount = F.getInstructionCount();
@@ -158,9 +161,46 @@ FunctionPropertiesSmall::getFunctionPropertiesSmall(const Function &F, const Loo
   return FPI;
 }
 
-
 json::Value FunctionPropertiesSmall::toJSON() const {
   json::Object obj;
+  return obj;
+}
+std::vector<int64_t> FunctionPropertiesInfo::toVec() const {
+  std::vector<int64_t> obj;
+  auto f = [](std::string s) { LLVM_DEBUG(dbgs() << s << ", ";); };
+#define REGISTER(VAR, NAME)                                                    \
+  {                                                                            \
+    f(#NAME);                                                                  \
+    VAR.push_back(NAME);                                                       \
+  }                                                                            
+  REGISTER(obj, BasicBlockCount);
+  REGISTER(obj, BlocksReachedFromConditionalInstruction);
+  REGISTER(obj, Uses);
+  REGISTER(obj, DirectCallsToDefinedFunctions);
+  REGISTER(obj, MaxLoopDepth);
+  REGISTER(obj, TopLevelLoopCount);
+  REGISTER(obj, InstructionCount);
+  REGISTER(obj, CastInstCount);
+  REGISTER(obj, FloatingConstantOccurrences);
+  REGISTER(obj, IntegerConstantOccurrences);
+  REGISTER(obj, FloatingPointInstCount);
+  REGISTER(obj, IntegerInstCount);
+  REGISTER(obj, BasicBlockWithSingleSuccessor);
+  REGISTER(obj, BasicBlockWithTwoSuccessors);
+  REGISTER(obj, BasicBlockWithMoreThanTwoSuccessors);
+  REGISTER(obj, BasicBlockWithSinglePredecessor);
+  REGISTER(obj, BasicBlockWithTwoPredecessors);
+  REGISTER(obj, BasicBlockWithMoreThanTwoPredecessors);
+  REGISTER(obj, BigBasicBlock);
+  REGISTER(obj, SmallBasicBlock);
+  REGISTER(obj, MediumBasicBlock);
+#undef REGISTER
+  for (unsigned int i = 1; i < 67; i++) {
+    // obj["OpCode_" + std::string(Instruction::getOpcodeName(i))] =
+    //    OpCodeCount[i];
+    LLVM_DEBUG(dbgs() << "OpCodeCount_" << i << ",";);
+    obj.push_back(OpCodeCount[i]);
+  }
   return obj;
 }
 json::Value FunctionPropertiesInfo::toJSON() const {
@@ -218,7 +258,8 @@ FunctionPropertiesAnalysis::run(Function &F, FunctionAnalysisManager &FAM) {
 FunctionPropertiesSmall
 FunctionPropertiesSmallAnalysis::run(Function &F,
                                      FunctionAnalysisManager &FAM) {
-  return FunctionPropertiesSmall::getFunctionPropertiesSmall(F, FAM.getResult<LoopAnalysis>(F));
+  return FunctionPropertiesSmall::getFunctionPropertiesSmall(
+      F, FAM.getResult<LoopAnalysis>(F));
 }
 
 PreservedAnalyses

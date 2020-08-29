@@ -13,6 +13,8 @@
 //
 //===----------------------------------------------------------------------===//
 #include <limits>
+#include <sys/types.h>
+#include <unistd.h>
 #include <unordered_map>
 #include <unordered_set>
 
@@ -26,23 +28,127 @@
 #include "llvm/Analysis/MLModelRunner.h"
 #include "llvm/Analysis/MLPassResultPredictor.h"
 #include "llvm/Analysis/OptimizationRemarkEmitter.h"
+#include "llvm/Analysis/PassResultAnalysis.h"
 #include "llvm/Analysis/TargetLibraryInfo.h"
 #include "llvm/Analysis/TargetTransformInfo.h"
 #include "llvm/IR/InstIterator.h"
 #include "llvm/IR/Instructions.h"
 #include "llvm/IR/PassManager.h"
 #include "llvm/Support/CommandLine.h"
+#include "llvm/Support/Debug.h"
 #include "llvm/Support/Path.h"
+#include "llvm/Transforms/IPO/AlwaysInliner.h"
+#include "llvm/Transforms/IPO/ArgumentPromotion.h"
+#include "llvm/Transforms/IPO/Attributor.h"
+#include "llvm/Transforms/IPO/CalledValuePropagation.h"
+#include "llvm/Transforms/IPO/ConstantMerge.h"
+#include "llvm/Transforms/IPO/CrossDSOCFI.h"
+#include "llvm/Transforms/IPO/DeadArgumentElimination.h"
+#include "llvm/Transforms/IPO/ElimAvailExtern.h"
+#include "llvm/Transforms/IPO/ForceFunctionAttrs.h"
+#include "llvm/Transforms/IPO/FunctionAttrs.h"
+#include "llvm/Transforms/IPO/FunctionImport.h"
+#include "llvm/Transforms/IPO/GlobalDCE.h"
+#include "llvm/Transforms/IPO/GlobalOpt.h"
+#include "llvm/Transforms/IPO/GlobalSplit.h"
+#include "llvm/Transforms/IPO/HotColdSplitting.h"
+#include "llvm/Transforms/IPO/InferFunctionAttrs.h"
+#include "llvm/Transforms/IPO/Inliner.h"
+#include "llvm/Transforms/IPO/Internalize.h"
+#include "llvm/Transforms/IPO/LowerTypeTests.h"
+#include "llvm/Transforms/IPO/MergeFunctions.h"
+#include "llvm/Transforms/IPO/OpenMPOpt.h"
+#include "llvm/Transforms/IPO/PartialInlining.h"
+#include "llvm/Transforms/IPO/SCCP.h"
+#include "llvm/Transforms/IPO/SampleProfile.h"
+#include "llvm/Transforms/IPO/StripDeadPrototypes.h"
+#include "llvm/Transforms/IPO/SyntheticCountsPropagation.h"
+#include "llvm/Transforms/IPO/WholeProgramDevirt.h"
+#include "llvm/Transforms/InstCombine/InstCombine.h"
+#include "llvm/Transforms/Scalar/ADCE.h"
+#include "llvm/Transforms/Scalar/AlignmentFromAssumptions.h"
+#include "llvm/Transforms/Scalar/BDCE.h"
+#include "llvm/Transforms/Scalar/CallSiteSplitting.h"
+#include "llvm/Transforms/Scalar/ConstantHoisting.h"
+#include "llvm/Transforms/Scalar/CorrelatedValuePropagation.h"
+#include "llvm/Transforms/Scalar/DCE.h"
+#include "llvm/Transforms/Scalar/DeadStoreElimination.h"
+#include "llvm/Transforms/Scalar/DivRemPairs.h"
+#include "llvm/Transforms/Scalar/EarlyCSE.h"
+#include "llvm/Transforms/Scalar/Float2Int.h"
+#include "llvm/Transforms/Scalar/GVN.h"
+#include "llvm/Transforms/Scalar/GuardWidening.h"
+#include "llvm/Transforms/Scalar/IVUsersPrinter.h"
+#include "llvm/Transforms/Scalar/IndVarSimplify.h"
+#include "llvm/Transforms/Scalar/InductiveRangeCheckElimination.h"
+#include "llvm/Transforms/Scalar/InstSimplifyPass.h"
+#include "llvm/Transforms/Scalar/JumpThreading.h"
+#include "llvm/Transforms/Scalar/LICM.h"
+#include "llvm/Transforms/Scalar/LoopAccessAnalysisPrinter.h"
+#include "llvm/Transforms/Scalar/LoopDataPrefetch.h"
+#include "llvm/Transforms/Scalar/LoopDeletion.h"
+#include "llvm/Transforms/Scalar/LoopDistribute.h"
+#include "llvm/Transforms/Scalar/LoopFuse.h"
+#include "llvm/Transforms/Scalar/LoopIdiomRecognize.h"
+#include "llvm/Transforms/Scalar/LoopInstSimplify.h"
+#include "llvm/Transforms/Scalar/LoopLoadElimination.h"
+#include "llvm/Transforms/Scalar/LoopPassManager.h"
+#include "llvm/Transforms/Scalar/LoopPredication.h"
+#include "llvm/Transforms/Scalar/LoopRotation.h"
+#include "llvm/Transforms/Scalar/LoopSimplifyCFG.h"
+#include "llvm/Transforms/Scalar/LoopSink.h"
+#include "llvm/Transforms/Scalar/LoopStrengthReduce.h"
+#include "llvm/Transforms/Scalar/LoopUnrollAndJamPass.h"
+#include "llvm/Transforms/Scalar/LoopUnrollPass.h"
+#include "llvm/Transforms/Scalar/LowerAtomic.h"
+#include "llvm/Transforms/Scalar/LowerConstantIntrinsics.h"
+#include "llvm/Transforms/Scalar/LowerExpectIntrinsic.h"
+#include "llvm/Transforms/Scalar/LowerGuardIntrinsic.h"
+#include "llvm/Transforms/Scalar/LowerMatrixIntrinsics.h"
+#include "llvm/Transforms/Scalar/LowerWidenableCondition.h"
+#include "llvm/Transforms/Scalar/MakeGuardsExplicit.h"
+#include "llvm/Transforms/Scalar/MemCpyOptimizer.h"
+#include "llvm/Transforms/Scalar/MergeICmps.h"
+#include "llvm/Transforms/Scalar/MergedLoadStoreMotion.h"
+#include "llvm/Transforms/Scalar/NaryReassociate.h"
+#include "llvm/Transforms/Scalar/NewGVN.h"
+#include "llvm/Transforms/Scalar/PartiallyInlineLibCalls.h"
+#include "llvm/Transforms/Scalar/Reassociate.h"
+#include "llvm/Transforms/Scalar/RewriteStatepointsForGC.h"
+#include "llvm/Transforms/Scalar/SCCP.h"
+#include "llvm/Transforms/Scalar/SROA.h"
+#include "llvm/Transforms/Scalar/Scalarizer.h"
+#include "llvm/Transforms/Scalar/SimpleLoopUnswitch.h"
+#include "llvm/Transforms/Scalar/SimplifyCFG.h"
+#include "llvm/Transforms/Scalar/Sink.h"
+#include "llvm/Transforms/Scalar/SpeculateAroundPHIs.h"
+#include "llvm/Transforms/Scalar/SpeculativeExecution.h"
+#include "llvm/Transforms/Scalar/TailRecursionElimination.h"
+#include "llvm/Transforms/Scalar/WarnMissedTransforms.h"
+#include "llvm/Transforms/Utils/Cloning.h"
 
 #define DEBUG_TYPE "pass-result-predictor-ml"
 
 namespace llvm {
+static llvm::cl::opt<unsigned> PredictionReuse("prediction-reuse", cl::Hidden,
+                                               cl::desc("reuse-prediction."),
+                                               cl::init(4));
 static cl::opt<bool> StorePassResult("store-pass-result", cl::Hidden,
                                      cl::desc("store feature vector"),
                                      cl::init(false));
 static cl::opt<bool> RunPrediction("run-prediction", cl::Hidden,
                                    cl::desc("pass result predictor"),
                                    cl::init(false));
+static cl::opt<bool> ShowOrderPrediction("show-order", cl::Hidden,
+                                         cl::desc("show config of input"),
+                                         cl::init(false));
+static cl::opt<bool> DumpAllResult("dump-all-result", cl::Hidden,
+                                   cl::desc("show config of input"),
+                                   cl::init(false));
+static cl::opt<bool> NotRunForTrivial("not-run-for-trivial", cl::Hidden,
+                                      cl::desc("show config of input"),
+                                      cl::init(false));
+
 STATISTIC(NumPredictSROAFalse, "Number of prediction of false for SROA");
 STATISTIC(NumPredictSROATrue, "Number of prediction of true for SROA");
 STATISTIC(NumPredictGVNFalse, "Number of prediction of false for GVN");
@@ -62,11 +168,104 @@ STATISTIC(NumPredictLoopRotatePassFalse,
 STATISTIC(NumPredictLoopRotatePassTrue,
           "Number of prediction of true for LoopRotate");
 
-// #define SIMPLE_LOG
+STATISTIC(NumPredictionForTrivial, "Number of prediction for prediction");
+STATISTIC(NumPrediction, "Number of prediction");
+STATISTIC(NumPredictionTrue, "Number of prediction true");
+STATISTIC(NumPredictionFalse, "Number of prediction false");
+template <>
+void MLPassResultPredictor<Function, FunctionAnalysisManager>::dumpAllResult(
+    Function &IR, FunctionAnalysisManager &FAM) {
+  if (!DumpAllResult)
+    return;
+  using Pass = detail::PassConcept<Function, FunctionAnalysisManager>;
+  using PassModelT =
+      detail::PassModel<Function, Pass, PreservedAnalyses, FunctionPassManager>;
+
+  std::vector<std::shared_ptr<Pass>> to_run;
+  FunctionPassManager FPM;
+  FPM.addPass(SimplifyCFGPass());
+  FPM.addPass(SROA());
+  FPM.addPass(EarlyCSEPass());
+  FPM.addPass(InstSimplifyPass());
+  FPM.addPass(GVN());
+  FPM.addPass(LoopUnrollPass());
+  FPM.addPass(BDCEPass());
+  FPM.addPass(TailCallElimPass());
+  FPM.addPass(JumpThreadingPass());
+  FPM.addPass(CorrelatedValuePropagationPass());
+  FPM.addPass(InstCombinePass());
+
+  std::vector<int> results;
+
+  for (int i = 0; i < FPM.Passes.size(); i++) {
+
+    ValueToValueMapTy VMap;
+    // auto M = CloneModule(*IR.getParent());
+    // M->materializeAll();
+    // Function&F = *M->getFunction(IR.getName());
+    Function &F = *CloneFunction(&IR, VMap);
+    FAM.clear();
+    PreservedAnalyses Res = FPM.Passes[i]->run(F, FAM);
+    results.push_back(!Res.areAllPreserved());
+    //   for(auto& B: F.getBasicBlockList()){
+    //       for(auto &I:B){
+    //         I.replaceAllUsesWith(UndefValue::get(I.getType()));
+    //       }
+    //  }
+    VMap.clear();
+    F.eraseFromParent();
+  }
+  LLVM_DEBUG(dbgs() << IR.getName() << " ";);
+  json::Object res;
+  json::Array res_arr;
+  for (int i = 0; i < results.size(); i++) {
+    // LLVM_DEBUG(dbgs() << (int)results[i];);
+    LLVM_DEBUG(dbgs() << FPM.Passes[i]->name() << ",";);
+    res_arr.push_back(bool(results[i]));
+  }
+  LLVM_DEBUG(dbgs() << "\n";);
+  FunctionPropertiesAnalysis::Result feat =
+      FAM.getResult<FunctionPropertiesAnalysis>(IR);
+  json::Object obj;
+  auto tt = feat.toVec();
+  obj["feature"] = tt;
+  obj["pass"] = std::move(res_arr);
+  obj["name"] = IR.getName();
+  json::Value v = std::move(obj);
+  {
+    int t = getpid();
+    auto fname = "pass_all_data_" + std::to_string(t) + ".txt";
+    std::error_code EC;
+    auto os = std::make_unique<llvm::raw_fd_ostream>(fname, EC,
+                                                     llvm::sys::fs::OF_Append);
+    // *os << v << "\n";
+    *os << IR.getName() << ",";
+    for (auto s : tt) {
+      *os << s << ",";
+    }
+    for (auto s : results) {
+      *os << s << ",";
+    }
+    *os << "\n";
+  }
+
+  LLVM_DEBUG(dbgs() << v << "\n";);
+}
+template <>
+void MLPassResultPredictor<Module, ModuleAnalysisManager>::dumpAllResult(
+    Module &IR, ModuleAnalysisManager &MAM) {}
+
+#define SIMPLE_LOG
+#define USE_NORMAL
+// #define USE_NORMAL
 
 #ifdef SIMPLE_LOG
 using FuncPropType = FunctionPropertiesAnalysis;
-#else
+#endif
+#ifdef USE_NORMAL
+using FuncPropType = FunctionPropertiesAnalysis;
+#endif
+#ifdef USE_MIN
 using FuncPropType = FunctionPropertiesSmallAnalysis;
 #endif
 struct PredictorInput {
@@ -107,6 +306,63 @@ void MLPassResultPredictor<Function, FunctionAnalysisManager>::dump(
   OS << v << "\n";
 }
 template <>
+bool MLPassResultPredictor<Module, ModuleAnalysisManager>::predict_all(
+    Module &In, ModuleAnalysisManager &MAM, StringRef name) {
+  return true;
+}
+std::map<std::pair<Function*, int>, int> called;
+template <>
+bool MLPassResultPredictor<Function, FunctionAnalysisManager>::predict_all(
+    Function &F, FunctionAnalysisManager &FAM, StringRef name) {
+  if (!RunPrediction)
+    return true;
+  if (NotRunForTrivial && F.getInstructionCount() < 5) {
+    NumPredictionForTrivial++;
+    return true;
+  }
+
+  static bool first = true;
+  static FunctionPassManager FPM;
+  if (first) {
+    FPM.addPass(SimplifyCFGPass());
+    FPM.addPass(SROA());
+    FPM.addPass(EarlyCSEPass());
+    FPM.addPass(InstSimplifyPass());
+    FPM.addPass(GVN());
+    FPM.addPass(LoopUnrollPass());
+    FPM.addPass(BDCEPass());
+    FPM.addPass(TailCallElimPass());
+    FPM.addPass(JumpThreadingPass());
+    FPM.addPass(CorrelatedValuePropagationPass());
+    FPM.addPass(InstCombinePass());
+    first = false;
+  }
+  for (int i = 0; i < FPM.Passes.size(); i++) {
+    if (FPM.Passes[i]->name() == name) {
+      bool res = true;
+      {
+        FunctionPassResultAnalysis::Result *FPP =
+            FAM.getCachedResult<FunctionPassResultAnalysis>(F);
+        if (FPP) {
+          LLVM_DEBUG(dbgs() << FPP->counter << " counter\n";);
+          FPP->counter++;
+          if (FPP->counter < PredictionReuse) {
+            res = FPP->result[i];
+          } else {
+            res = FAM.getResult<FunctionPassResultAnalysis>(F).result[i];
+          }
+        } else {
+          res = FAM.getResult<FunctionPassResultAnalysis>(F).result[i];
+        }
+      }
+      NumPrediction++;
+      (res ? NumPredictionTrue : NumPredictionFalse)++;
+      return res;
+    }
+  }
+  return true;
+}
+template <>
 bool MLPassResultPredictor<Module, ModuleAnalysisManager>::predict(
     PredictorInput *In, LLVMContext &Ctx) {
   return true;
@@ -122,50 +378,57 @@ bool MLPassResultPredictor<Module, ModuleAnalysisManager>::predict(
 template <>
 bool MLPassResultPredictor<Function, FunctionAnalysisManager>::predict(
     PredictorInput *In, LLVMContext &Ctx) {
-  // dbgs() << "Prediction try"
-  //        << "\n";
+  LLVM_DEBUG(dbgs() << "Prediction try"
+                    << "\n");
   if (!In)
     return true;
-    // dbgs() << "Prediction Running"
-    //        << "\n";
-#ifdef SIMPLE_LOG
 
-  std::cerr << "RUN SIMPLE LOG" << std::endl;
-  if (In->PassName == "FunctionToLoopPassAdaptor<llvm::LICMPass>") {
-    auto res = predict_LICM(In->Features);
-    //    (res ? NumPredictLICMTrue : NumPredictLICMFalse)++;
-    return res;
-  }
-  if (In->PassName == "FunctionToLoopPassAdaptor<llvm::LoopRotatePass>") {
-    auto res = predict_LoopRotatePass(In->Features);
-    //    (res ? NumPredictLoopRotatePassTrue :
-    //    NumPredictLoopRotatePassFalse)++;
-    return res;
-  }
-  if (In->PassName == "GVN") {
-    auto res = predict_GVN(In->Features);
-    //    (res ? NumPredictGVNTrue : NumPredictGVNFalse)++;
-    return res;
-  }
-  if (In->PassName == "ReassociatePass")
-    return predict_ReassociatePass(In->Features);
-  if (In->PassName == "SROA")
-    return predict_ReassociatePass(In->Features);
-  if (In->PassName == "InstSimplifyPass")
-    return predict_InstSimplifyPass(In->Features);
-#else
-  auto Models = Ctx.getPredictor();
-  if (!Models) {
-    Ctx.setPredictor(std::make_unique<FunctionPassResultPredictionModel>());
-    Models = Ctx.getPredictor();
-  }
-  auto Model = Models->get(In->PassName.str(), Ctx);
-  // dbgs() << "Trying to fetch model" << In->PassName.str() << " " << (bool)Model
+  bool ActuallyRun = true;
+  auto calc = [&]() -> bool {
+  // dbgs() << "Prediction Running"
   //        << "\n";
-  if (!Model)
+#ifdef SIMPLE_LOG
+    //  std::cerr << "RUN SIMPLE LOG" << std::endl;
+    if (In->PassName == "FunctionToLoopPassAdaptor<llvm::LICMPass>") {
+      auto res = predict_LICM(In->Features);
+      //    (res ? NumPredictLICMTrue : NumPredictLICMFalse)++;
+      return res;
+    }
+    // if (In->PassName == "FunctionToLoopPassAdaptor<llvm::LoopRotatePass>") {
+    //   auto res = predict_LoopRotatePass(In->Features);
+    //   //    (res ? NumPredictLoopRotatePassTrue :
+    //   //    NumPredictLoopRotatePassFalse)++;
+    //   return res;
+    // }
+    if (In->PassName == "GVN") {
+      return predict_GVN(In->Features);
+    }
+
+    if (In->PassName == "ReassociatePass")
+      return predict_ReassociatePass(In->Features);
+    if (In->PassName == "SROA")
+      return predict_ReassociatePass(In->Features);
+    if (In->PassName == "InstSimplifyPass")
+      return predict_InstSimplifyPass(In->Features);
+    ActuallyRun = false;
     return true;
-  {
-    auto &FPI = In->Features;
+#else
+    auto Models = Ctx.getPredictor();
+    if (!Models) {
+      Ctx.setPredictor(std::make_unique<FunctionPassResultPredictionModel>());
+      Models = Ctx.getPredictor();
+    }
+    auto Model = Models->get(In->PassName.str(), Ctx);
+    LLVM_DEBUG(dbgs() << "Trying to fetch model" << In->PassName.str() << " "
+                      << (bool)Model << "\n");
+    if (!Model) {
+      ActuallyRun = false;
+      return true;
+    }
+    {
+      auto &FPI = In->Features;
+#endif
+
 #ifdef USE_NORMAL
     Model->setFeature(0, FPI.BasicBlockCount);
     Model->setFeature(1, FPI.BasicBlockWithMoreThanTwoPredecessors);
@@ -254,25 +517,25 @@ bool MLPassResultPredictor<Function, FunctionAnalysisManager>::predict(
     Model->setFeature(84, FPI.SmallBasicBlock);
     Model->setFeature(85, FPI.TopLevelLoopCount);
     Model->setFeature(86, FPI.Uses);
-  #else
-  Model->setFeature(0, FPI.BasicBlockCount);
-  Model->setFeature(1, FPI.IntegerConstantOccurrences);
-  Model->setFeature(2, FPI.BasicBlockWithSingleSuccessor);
-  Model->setFeature(3, FPI.GEP);
-  Model->setFeature(4, FPI.MaxLoopDepth);
-  Model->setFeature(5, FPI.Call);
-  Model->setFeature(6, FPI.Alloca);
-  Model->setFeature(7, FPI.Store);
-  Model->setFeature(8, FPI.TopLevelLoopCount);
-  Model->setFeature(9, FPI.IntegerInstCount);
-  Model->setFeature(10, FPI.PHI);
-  Model->setFeature(11, FPI.BasicBlockWithSinglePredecessor);
-  Model->setFeature(12, FPI.Load);
-  Model->setFeature(13, FPI.InstructionCount);
-  #endif
-  }
-  auto res = Model->run();
-  // dbgs() << "Prediction Result" << In->PassName.str() << " " << res << "\n";
+#else
+      Model->setFeature(0, FPI.BasicBlockCount);
+      Model->setFeature(1, FPI.IntegerConstantOccurrences);
+      Model->setFeature(2, FPI.BasicBlockWithSingleSuccessor);
+      Model->setFeature(3, FPI.GEP);
+      Model->setFeature(4, FPI.MaxLoopDepth);
+      Model->setFeature(5, FPI.Call);
+      Model->setFeature(6, FPI.Alloca);
+      Model->setFeature(7, FPI.Store);
+      Model->setFeature(8, FPI.TopLevelLoopCount);
+      Model->setFeature(9, FPI.IntegerInstCount);
+      Model->setFeature(10, FPI.PHI);
+      Model->setFeature(11, FPI.BasicBlockWithSinglePredecessor);
+      Model->setFeature(12, FPI.Load);
+      Model->setFeature(13, FPI.InstructionCount);
+#endif
+  } auto res = Model->run();
+  LLVM_DEBUG(dbgs() << "Prediction Result" << In->PassName.str() << " " << res
+                    << "\n");
   return res;
   // if (!Pred->PassNameToModel.count(In->PassName.str()))
   //   return true;
@@ -282,9 +545,14 @@ bool MLPassResultPredictor<Function, FunctionAnalysisManager>::predict(
   // Model->setFeature((size_t)PassResultPredictionFeatureIndex::InstructionCount,
   //                   In->Features.InstructionCount);
   //  return Model->run();
-#endif
-  return true;
+};
+bool res = calc();
+if (ActuallyRun) {
+  NumPrediction++;
+  (res ? NumPredictionTrue : NumPredictionFalse)++;
 }
+return res;
+} // namespace llvm
 
 template <>
 PredictorInput *
@@ -292,29 +560,28 @@ MLPassResultPredictor<Module, ModuleAnalysisManager>::createInput(
     Module &IR, ModuleAnalysisManager &FAM, StringRef PassName) {
   return nullptr;
 }
-static const std::string registered[] = {"SROA",
-                                         "LoopUnrollPass",
-                                         "LoopSimplifyPass",
-                                         "BDCEPass",
-                                         "EarlyCSEPass",
-                                         "JumpThreadingPass",
-                                         "TailCallElimPass",
-                                         "SLPVectorizerPass",
-                                         "LCSSAPass",
-                                         "SimplifyCFGPass",
-                                         "InstSimplifyPass", 
-                                         "GVN"
-                                         };
+static const std::vector<std::string> registered = {
+    "SROA", "LoopUnrollPass",
+    //                                         "LoopSimplifyPass",
+    "BDCEPass", "EarlyCSEPass", "JumpThreadingPass", "TailCallElimPass",
+    "SLPVectorizerPass", "LCSSAPass", "SimplifyCFGPass", "InstSimplifyPass",
+    "GVN"};
 template <>
 PredictorInput *
 MLPassResultPredictor<Function, FunctionAnalysisManager>::createInput(
     Function &IR, FunctionAnalysisManager &FAM, StringRef PassName) {
+
+  LLVM_DEBUG(dbgs() << "Trying to create input for prediction" << PassName
+                    << "\n");
   if (!RunPrediction)
     return nullptr;
-  // dbgs() << "HOGE" << PassName << "\n";
+  LLVM_DEBUG(dbgs() << "Prediction Start" << PassName << "\n");
 #ifdef SIMPLE_LOG
+
+  LLVM_DEBUG(dbgs() << "Simple logistic regression will be used" << PassName
+                    << "\n");
   if (PassName == "FunctionToLoopPassAdaptor<llvm::LICMPass>" ||
-      PassName == "FunctionToLoopPassAdaptor<llvm::LoopRotatePass>" ||
+      //     PassName == "FunctionToLoopPassAdaptor<llvm::LoopRotatePass>" ||
       PassName == "GVN" || PassName == "SROA" ||
       PassName == "ReassociatePass" || PassName == "InstSimplifyPass") {
     FunctionPropertiesAnalysis Ana;
@@ -322,13 +589,16 @@ MLPassResultPredictor<Function, FunctionAnalysisManager>::createInput(
     return new PredictorInput{Result, FAM.PassResults[&IR], PassName};
   }
 #else
-  for (int i = 0; i < 12; i++)
+
+  LLVM_DEBUG(dbgs() << "ML Model will be used" << PassName << "\n");
+  for (int i = 0; i < registered.size(); i++)
     if (registered[i] == PassName) {
-      FunctionPropertiesSmallAnalysis Ana;
-      FunctionPropertiesSmallAnalysis::Result Result = Ana.run(IR, FAM);
+      FuncPropType Ana;
+      FuncPropType::Result Result = Ana.run(IR, FAM);
       return new PredictorInput{Result, FAM.PassResults[&IR], PassName};
     }
 #endif
   return nullptr;
 }
+
 } // namespace llvm

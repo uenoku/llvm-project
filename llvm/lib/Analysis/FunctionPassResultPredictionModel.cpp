@@ -15,6 +15,10 @@
 #include "llvm/Support/Debug.h"
 
 namespace llvm {
+PassAllResultPredictionModelRunner::PassAllResultPredictionModelRunner(
+    LLVMContext &Ctx)
+    : MLModelRunner(Ctx) {
+}
 PassResultPredictionModelRunner::PassResultPredictionModelRunner(
     LLVMContext &Ctx)
     : MLModelRunner(Ctx) {
@@ -60,7 +64,7 @@ FunctionPassResultPredictionModel::get(std::string name,
 #define REGISTER(NAME, MODELNAME)                                              \
   {                                                                            \
     if (name == #NAME)                                                         \
-      Models[name] = std::make_unique<ModelImpl<MODELNAME>>(ctx);              \
+      Models[name] = std::make_shared<ModelImpl<MODELNAME>>(ctx);              \
   }
 
   // dbgs() << "[FunctionPassResultPredictionModel]:get Model " << name << "\n";
