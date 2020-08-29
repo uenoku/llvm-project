@@ -1,6 +1,6 @@
 # The LLVM Compiler Infrastructure
 This branch contains prototype of pass result prediction framework during GSoC 2020 "Advanced Heuristics for Ordering Compiler Optimization Passes". 
-Please refer [the project report](https://docs.google.com/document/d/1pbUPRSjYL5QHLEkwNTjnvdYvgiKaYO_LpyNaTKhTWEA/edit#heading=h.uj16i1ekvivz) for detail of the work. 
+Please refer [the project report](https://docs.google.com/document/d/1pbUPRSjYL5QHLEkwNTjnvdYvgiKaYO_LpyNaTKhTWEA/edit#heading=h.uj16i1ekvivz) for the motivation and detail of the work. 
 
 
 ## usage
@@ -18,5 +18,6 @@ $ ./build/bin/clang++ foo.cpp -O3 -mllvm --run-prediction
 ## Description of Addition
 1. I have added following files:
     * llvm/Analysis/MLPassResultPredictor.{h, cpp}
-       This file defines Pass Result Predictor framework interfaces. `MLPassResultPredcitor<IRUnit,AnalysisManger>` has `predictPassResult` method, which takes pass name (i.e. SROA, GVN...), IR (i.e. Function, Module...) as inputs and returns the estimated result of the pass. In that file, we can define prediction algorithms seprately. 
+       This file defines Pass Result Predictor framework interfaces. `MLPassResultPredcitor<IRUnit,AnalysisManger>` has `predictPassResult` method, which takes pass name (i.e. SROA, GVN...), IR (i.e. Function, Module...) as inputs and returns the estimated result of the pass. In that file, we can define prediction algorithms seprately. In PassManager, the predictor is called before the pass execcution (currently only before function passes).
+
        
