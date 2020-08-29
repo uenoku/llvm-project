@@ -37,8 +37,10 @@ public:
   MLPassResultPredictor() {}
   virtual ~MLPassResultPredictor() = default;
   bool predict(PredictorInput *In, LLVMContext& Ctx);
+  bool predict_all(IRUnitT &IR, AnalysisManagerT &AM, StringRef PassName);
   PredictorInput *createInput(IRUnitT &IR, AnalysisManagerT &AM,
                               StringRef PassName);
+  void dumpAllResult(IRUnitT &IR, AnalysisManagerT&);
   void dump(StringRef, PredictorInput *, bool, raw_ostream &);
 };
 

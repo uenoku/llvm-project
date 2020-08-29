@@ -29,6 +29,7 @@ public:
 
   void print(raw_ostream &OS) const;
   json::Value toJSON() const;
+  std::vector<int64_t> toVec() const;
 
   /// Number of basic blocks
   int64_t BasicBlockCount = 0;
