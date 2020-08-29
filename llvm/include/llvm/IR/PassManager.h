@@ -55,7 +55,6 @@
 #include "llvm/Support/TypeName.h"
 #include <algorithm>
 #include <cassert>
-#include <chrono>
 #include <cstring>
 #include <iterator>
 #include <list>
@@ -66,22 +65,6 @@
 #include <vector>
 
 namespace llvm {
-inline bool isPassManagerF(StringRef PassID) {
-  size_t prefix_pos = PassID.find('<');
-  if (prefix_pos == StringRef::npos)
-    return false;
-  StringRef Prefix = PassID.substr(0, prefix_pos);
-  return Prefix.endswith("PassManager") || Prefix.endswith("PassAdaptor") ||
-         Prefix.endswith("AnalysisManagerProxy");
-}
-
-template <typename IR> StringRef getModuleName(IR &F);
-template <> inline StringRef getModuleName<Function>(Function &F) {
-  return F.getParent()->getName();
-}
-template <> inline StringRef getModuleName<Module>(Module &M) {
-  return M.getName();
-}
 /// A special type used by analysis passes to provide an address that
 /// identifies that particular analysis pass type.
 ///
@@ -531,33 +514,8 @@ public:
     if (DebugLogging)
       dbgs() << "Starting " << getTypeName<IRUnitT>() << " pass manager run.\n";
 
-    // FIXME: I guess this is not appropriate way to log the result...
-    StringRef StatsFile = "pass_result.txt";
-
-    std::unique_ptr<llvm::raw_fd_ostream> StatS = nullptr;
-    std::unique_ptr<llvm::raw_fd_ostream> StatS2 = nullptr;
-    std::error_code EC2, EC1;
-
-    if (!NoStore) {
-      StatS = std::make_unique<llvm::raw_fd_ostream>("pass_result.txt", EC1,
-                                                     llvm::sys::fs::OF_Append);
-      if (EC1)
-        assert(false && "Cannot open stats");
-
-      SmallVector<StringRef, 4> spt;
-      getModuleName<IRUnitT>(IR).split(spt, "/");
-      int t = std::rand();
-      auto fname = "pass_data_" + std::to_string(t) + ".txt";
-      auto StatS2 = std::make_unique<llvm::raw_fd_ostream>(
-          StringRef(fname), EC2, llvm::sys::fs::OF_Append);
-      if (EC2) {
-        dbgs() << fname << "\n";
-        assert(false && "Cannot open stats");
-      }
-    }
-
     MLPassResultPredictor<IRUnitT, AnalysisManagerT> PRP;
-    bool shouldRun = true;
+    bool ShouldRun = true;
 
     for (unsigned Idx = 0, Size = Passes.size(); Idx != Size; ++Idx) {
       auto *P = Passes[Idx].get();
@@ -573,44 +531,21 @@ public:
                << "\n";
 
       PreservedAnalyses PassPA;
-      auto Start = std::chrono::steady_clock::now();
 
       {
         TimeTraceScope TimeScope(P->name(), IR.getName());
-        if (CallResult && shouldRun) {
+        if (CallResult && ShouldRun) {
           PRP.dumpAllResult(IR, AM);
-          shouldRun = false;
+          ShouldRun = false;
         }
-        if (PRP.predict_all(IR, AM, P->name())) {
+
+        if (PRP.predict_all(IR, AM, P->name())) 
           PassPA = P->run(IR, AM, ExtraArgs...);
-        }
-        // auto In = PRP.createInput(IR, AM, P->name());
-        // if (PRP.predict(In, IR.getContext()))
-        //   PassPA = P->run(IR, AM, ExtraArgs...);
-        // else
-        // {
-        // //  dbgs() << "Prediction false for " << P->name() << "\n";
-        // }
 
-        // if (!NoStore)
-        //   PRP.dump(IR.getName(), In, !PassPA.areAllPreserved(), *StatS2);
       }
+
       if (!PassPA.areAllPreserved())
-        shouldRun = true;
-
-      if (!NoStore) {
-        auto End = std::chrono::steady_clock::now();
-        std::chrono::nanoseconds t =
-            duration_cast<std::chrono::nanoseconds>(End - Start);
-        if (!isPassManagerF(P->name())) {
-          *StatS << "PassResult\t\"" << P->name() << "\"\t" << IR.getName()
-                 << "\t"
-                 << (PassPA.areAllPreserved() ? "preserved" : "modified")
-                 << "\t" << t.count() << "\t\"" << getModuleName(IR) << "\"\n";
-
-          StatS->flush();
-        }
-      }
+        ShouldRun = true;
 
       // Call onto PassInstrumentation's AfterPass callbacks immediately after
       // running the pass.
@@ -619,8 +554,6 @@ public:
       // Update the analysis manager as each pass runs and potentially
       // invalidates analyses.
       AM.invalidate(IR, PassPA);
-
-      AM.registerResult(IR, PassPA, P->name());
 
       // Finally, intersect the preserved analyses to compute the aggregate
       // preserved set for this pass manager.
@@ -1349,31 +1282,9 @@ public:
     // instrumenting callbacks for the passes later.
     PassInstrumentation PI = AM.getResult<PassInstrumentationAnalysis>(M);
 
-    std::error_code EC2, EC1;
     PreservedAnalyses PA = PreservedAnalyses::all();
     MLPassResultPredictor<Function, FunctionAnalysisManager> PRP;
-    bool shouldRun = true;
-
-    std::unique_ptr<llvm::raw_fd_ostream> StatS = nullptr;
-    std::unique_ptr<llvm::raw_fd_ostream> StatS2 = nullptr;
-
-    if (!NoStore) {
-      StatS = std::make_unique<llvm::raw_fd_ostream>("pass_result.txt", EC1,
-                                                     llvm::sys::fs::OF_Append);
-      if (EC1)
-        assert(false && "Cannot open stats");
-
-      SmallVector<StringRef, 4> spt;
-      M.getName().split(spt, "/");
-      int t = std::rand();
-      auto fname = "pass_data_" + std::to_string(t) + ".txt";
-      auto StatS2 = std::make_unique<llvm::raw_fd_ostream>(
-          StringRef(fname), EC2, llvm::sys::fs::OF_Append);
-      if (EC2) {
-        dbgs() << fname << "\n";
-        assert(false && "Cannot open stats");
-      }
-    }
+    bool ShouldRun = true;
 
     for (Function &F : M) {
       if (F.isDeclaration())
@@ -1385,43 +1296,19 @@ public:
       if (!PI.runBeforePass<Function>(Pass, F))
         continue;
 
-      auto Start = std::chrono::steady_clock::now();
       PreservedAnalyses PassPA;
       {
         TimeTraceScope TimeScope(Pass.name(), F.getName());
-        if (shouldRun) {
+        if (ShouldRun) {
           PRP.dumpAllResult(F, FAM);
-          shouldRun = false;
+          ShouldRun = false;
         }
         if (PRP.predict_all(F, FAM, Pass.name())) {
           PassPA = Pass.run(F, FAM);
         }
-
-        // auto In = PRP.createInput(F, FAM, Pass.name());
-        // if (PRP.predict(In, F.getContext()))
-        //   PassPA = Pass.run(F, FAM);
-        // else {
-        //   // dbgs() << "Prediction false for " << Pass.name() << "\n";
-        //        }
-        // if (!NoStore)
-        //   PRP.dump(F.getName(), In, !PassPA.areAllPreserved(), *StatS2);
       }
       if (!PassPA.areAllPreserved())
-        shouldRun = true;
-
-      auto End = std::chrono::steady_clock::now();
-      std::chrono::nanoseconds t =
-          duration_cast<std::chrono::nanoseconds>(End - Start);
-      if (!NoStore)
-        if (!isPassManagerF(Pass.name())) {
-          *StatS << "PassResult\t\"" << Pass.name() << "\"\t" << F.getName()
-                 << "\t"
-                 << (PassPA.areAllPreserved() ? "preserved" : "modified")
-                 << "\t" << t.count() << "\t"
-                 << "\"" << F.getParent()->getName() << "\""
-                 << "\n";
-          StatS->flush();
-        }
+        ShouldRun = true;
 
       PI.runAfterPass(Pass, F);
 
@@ -1429,8 +1316,6 @@ public:
       // function's analyses (that's the contract of a function pass), so
       // directly handle the function analysis manager's invalidation here.
       FAM.invalidate(F, PassPA);
-
-      FAM.registerResult(F, PassPA, Pass.name());
 
       // Then intersect the preserved set so that invalidation of module
       // analyses will eventually occur when the module pass completes.

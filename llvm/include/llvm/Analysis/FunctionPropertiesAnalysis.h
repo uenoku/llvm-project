@@ -28,7 +28,6 @@ public:
                                                           const LoopInfo &LI);
 
   void print(raw_ostream &OS) const;
-  json::Value toJSON() const;
   std::vector<int64_t> toVec() const;
 
   /// Number of basic blocks
@@ -53,18 +52,21 @@ public:
   /// Number of all instuctions
   int64_t InstructionCount = 0;
 
-  // Maximum Loop Depth in the Function
+  /// Maximum Loop Depth in the Function
   int64_t MaxLoopDepth = 0;
 
-  // Number of Top Level Loops in the Function
+  /// Number of Top Level Loops in the Function
   int64_t TopLevelLoopCount = 0;
 
+  /// Number of Cast-like Instruction Count in the Function
   int64_t CastInstCount = 0;
 
+  /// Number of Basic Blocks with specific successors.
   int64_t BasicBlockWithSingleSuccessor = 0;
   int64_t BasicBlockWithTwoSuccessors = 0;
   int64_t BasicBlockWithMoreThanTwoSuccessors = 0;
 
+  /// Number of Basic Blocks with specific predecessors.
   int64_t BasicBlockWithSinglePredecessor = 0;
   int64_t BasicBlockWithTwoPredecessors = 0;
   int64_t BasicBlockWithMoreThanTwoPredecessors = 0;
@@ -78,9 +80,13 @@ public:
   // Number of basic blocks with less than 15 instructions.
   int64_t SmallBasicBlock = 0;
 
+  /// Number of Floating Point Instruction Count.
   int64_t FloatingPointInstCount = 0;
+
+  /// Number of Integer Instruction Count.
   int64_t IntegerInstCount = 0;
 
+  /// Number of Occurences of Constants
   int64_t IntegerConstantOccurrences = 0;
   int64_t FloatingConstantOccurrences = 0;
 
@@ -90,14 +96,10 @@ public:
 class FunctionPropertiesSmall {
 public:
   static FunctionPropertiesSmall getFunctionPropertiesSmall(const Function &F, const LoopInfo &LI);
-
-  /// Number of all instuctions
+  // Small Subset of FunctionProperties Analsyis
   int64_t InstructionCount = 0;
-
   int64_t BasicBlockWithSingleSuccessor = 0;
   int64_t BasicBlockWithSinglePredecessor = 0;
-
-  // Number of basic blocks with more than 500 instructions
   int64_t IntegerInstCount = 0;
   int64_t IntegerConstantOccurrences = 0;
   int64_t Store = 0;
@@ -109,9 +111,6 @@ public:
   int64_t MaxLoopDepth = 0;
   int64_t TopLevelLoopCount = 0;
   int64_t BasicBlockCount = 0;
-
-//  std::array<int64_t, 70> OpCodeCount = {0};
-  json::Value toJSON() const;
 
 };
 

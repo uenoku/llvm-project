@@ -161,16 +161,12 @@ FunctionPropertiesSmall::getFunctionPropertiesSmall(const Function &F,
   return FPI;
 }
 
-json::Value FunctionPropertiesSmall::toJSON() const {
-  json::Object obj;
-  return obj;
-}
 std::vector<int64_t> FunctionPropertiesInfo::toVec() const {
   std::vector<int64_t> obj;
-  auto f = [](std::string s) { LLVM_DEBUG(dbgs() << s << ", ";); };
+  auto Debug = [](std::string s) { LLVM_DEBUG(dbgs() << s << ", ";); };
 #define REGISTER(VAR, NAME)                                                    \
   {                                                                            \
-    f(#NAME);                                                                  \
+    Debug(#NAME);                                                                  \
     VAR.push_back(NAME);                                                       \
   }                                                                            
   REGISTER(obj, BasicBlockCount);
@@ -196,42 +192,8 @@ std::vector<int64_t> FunctionPropertiesInfo::toVec() const {
   REGISTER(obj, MediumBasicBlock);
 #undef REGISTER
   for (unsigned int i = 1; i < 67; i++) {
-    // obj["OpCode_" + std::string(Instruction::getOpcodeName(i))] =
-    //    OpCodeCount[i];
     LLVM_DEBUG(dbgs() << "OpCodeCount_" << i << ",";);
     obj.push_back(OpCodeCount[i]);
-  }
-  return obj;
-}
-json::Value FunctionPropertiesInfo::toJSON() const {
-#define REGISTER(VAR, NAME) VAR[#NAME] = NAME;
-  json::Object obj;
-  REGISTER(obj, BasicBlockCount);
-  REGISTER(obj, BlocksReachedFromConditionalInstruction);
-  REGISTER(obj, Uses);
-  REGISTER(obj, DirectCallsToDefinedFunctions);
-  REGISTER(obj, MaxLoopDepth);
-  REGISTER(obj, TopLevelLoopCount);
-  REGISTER(obj, InstructionCount);
-  REGISTER(obj, CastInstCount);
-  REGISTER(obj, FloatingConstantOccurrences);
-  REGISTER(obj, IntegerConstantOccurrences);
-  REGISTER(obj, FloatingPointInstCount);
-  REGISTER(obj, IntegerInstCount);
-  REGISTER(obj, BasicBlockWithSingleSuccessor);
-  REGISTER(obj, BasicBlockWithTwoSuccessors);
-  REGISTER(obj, BasicBlockWithMoreThanTwoSuccessors);
-  REGISTER(obj, BasicBlockWithSinglePredecessor);
-  REGISTER(obj, BasicBlockWithTwoPredecessors);
-  REGISTER(obj, BasicBlockWithMoreThanTwoPredecessors);
-  REGISTER(obj, BigBasicBlock);
-  REGISTER(obj, SmallBasicBlock);
-  REGISTER(obj, MediumBasicBlock);
-#undef REGISTER
-  for (unsigned int i = 1; i < 67; i++) {
-    // obj["OpCode_" + std::string(Instruction::getOpcodeName(i))] =
-    //    OpCodeCount[i];
-    obj["OpCodeCount_" + std::to_string(i)] = OpCodeCount[i];
   }
   return obj;
 }
