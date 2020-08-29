@@ -30,18 +30,19 @@ class Function;
 class Module;
 class MLInlineAdvice;
 struct PredictorInput;
+enum PredictionMethod {
+    BatchNN,
+    SingleLogistic,
+    SingleNN,
+  };
 /// ML guided Pass Result Predictor
 template <typename IRUnitT, typename AnalysisManagerT>
 struct MLPassResultPredictor {
 public:
   MLPassResultPredictor() {}
   virtual ~MLPassResultPredictor() = default;
-  bool predict(PredictorInput *In, LLVMContext& Ctx);
-  bool predict_all(IRUnitT &IR, AnalysisManagerT &AM, StringRef PassName);
-  PredictorInput *createInput(IRUnitT &IR, AnalysisManagerT &AM,
-                              StringRef PassName);
-  void dumpAllResult(IRUnitT &IR, AnalysisManagerT&);
-  void dump(StringRef, PredictorInput *, bool, raw_ostream &);
+  bool predictPassResult(IRUnitT &IR, AnalysisManagerT &AM, StringRef PassName);
+  void dumpAllResult(IRUnitT &IR, AnalysisManagerT &);
 };
 
 } // namespace llvm

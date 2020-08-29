@@ -14,8 +14,8 @@
 #ifndef LLVM_FUNCTIONRESULTANALYSIS_H_
 #define LLVM_FUNCTIONRESULTANALYSIS_H_
 
-#include "llvm/IR/PassManager.h"
 #include "llvm/Analysis/LoopInfo.h"
+#include "llvm/IR/PassManager.h"
 #include <map>
 
 namespace llvm {
@@ -23,10 +23,10 @@ class Function;
 
 class FunctionPassResultPrediction {
 public:
-  static FunctionPassResultPrediction getFunctionResultPrediction(Function &F,
-                                                          FunctionAnalysisManager &FAM);
-   std::vector<bool> result;
-   int counter = 0;
+  static FunctionPassResultPrediction
+  getFunctionResultPrediction(Function &F, FunctionAnalysisManager &FAM);
+  std::vector<bool> result;
+  unsigned counter = 0;
 };
 // Analysis pass
 class FunctionPassResultAnalysis

@@ -539,7 +539,7 @@ public:
           ShouldRun = false;
         }
 
-        if (PRP.predict_all(IR, AM, P->name())) 
+        if (PRP.predictPassResult(IR, AM, P->name())) 
           PassPA = P->run(IR, AM, ExtraArgs...);
 
       }
@@ -592,7 +592,6 @@ public:
 
   std::vector<std::unique_ptr<PassConceptT>> Passes;
 
-private:
   /// Flag indicating whether we should do debug logging.
   bool DebugLogging;
   bool CallResult;
@@ -1303,14 +1302,14 @@ public:
           PRP.dumpAllResult(F, FAM);
           ShouldRun = false;
         }
-        if (PRP.predict_all(F, FAM, Pass.name())) {
+        if (PRP.predictPassResult(F, FAM, Pass.name())) {
           PassPA = Pass.run(F, FAM);
         }
       }
       if (!PassPA.areAllPreserved())
         ShouldRun = true;
 
-      PI.runAfterPass(Pass, F);
+      PI.runAfterPass(Pass, F, PassPA);
 
       // We know that the function pass couldn't have invalidated any other
       // function's analyses (that's the contract of a function pass), so
