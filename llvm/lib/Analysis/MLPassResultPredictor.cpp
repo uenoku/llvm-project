@@ -146,14 +146,15 @@ static cl::opt<bool> NotRunForTrivial(
     cl::init(false));
 
 static cl::opt<PredictionMethod> PMethod(
-  "prediction-method",
-    cl::desc("Choose Prediction Method:"), cl::init(BatchNN),
+    "prediction-method", cl::desc("Choose Prediction Method:"),
+    cl::init(BatchNN),
     cl::values(clEnumVal(SingleNN, "Single pass prediction with NN"),
                clEnumVal(SingleLogistic,
                          "Single pass prediction with logistic regression"),
                clEnumVal(BatchNN, "Batch pass prediction with NN")));
 STATISTIC(NumPredictionForTrivial, "Number of prediction for prediction");
 STATISTIC(NumPrediction, "Number of prediction");
+STATISTIC(NumPassesRun, "Number of run of passes");
 STATISTIC(NumPredictionTrue, "Number of prediction true");
 STATISTIC(NumPredictionFalse, "Number of prediction false");
 template <>
@@ -288,8 +289,9 @@ bool predictPassResultBySingleLogistic(Function &F,
     if (PassName == #NAME) {                                                   \
       FunctionPropertiesAnalysis::Result FPI =                                 \
           FAM.getResult<FunctionPropertiesAnalysis>(F);                        \
+      ActualRun = true;                                                        \
       return predict_##NAME(FPI);                                              \
-    }                                                                          \
+    } \
   }
   CHECK(ReassociatePass);
   CHECK(InstSimplifyPass);
@@ -300,7 +302,7 @@ bool predictPassResultBySingleLogistic(Function &F,
   CHECK(SROA);
   CHECK(GVN);
 #undef CHECK
-  return false;
+  return true;
 }
 
 bool predictPassResultBySingleNN(Function &F, FunctionAnalysisManager &FAM,
@@ -413,6 +415,7 @@ template <>
 bool MLPassResultPredictor<Function, FunctionAnalysisManager>::
     predictPassResult(Function &F, FunctionAnalysisManager &FAM,
                       StringRef Name) {
+  NumPassesRun++;
   if (!RunPrediction)
     return true;
 

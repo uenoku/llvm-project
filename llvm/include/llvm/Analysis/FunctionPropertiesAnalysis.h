@@ -24,8 +24,8 @@ class Function;
 
 class FunctionPropertiesInfo {
 public:
-  static FunctionPropertiesInfo getFunctionPropertiesInfo(const Function &F,
-                                                          const LoopInfo &LI);
+  static FunctionPropertiesInfo getFunctionPropertiesInfo(const Function &F
+                                                          );
 
   void print(raw_ostream &OS) const;
   std::vector<int64_t> toVec() const;
