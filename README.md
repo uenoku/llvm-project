@@ -26,6 +26,8 @@ $ python3 $LLVM_HOME/script/accmulate_data.py ~/sandbox/test-xxx
 This creates data.csv to the current directory
 
 ## Description of Addition
-1. I have added following files:
+1. I have added/modified following files:
     * llvm/Analysis/MLPassResultPredictor.{h, cpp}
-       This file defines Pass Result Predictor framework interfaces. `MLPassResultPredcitor<IRUnit,AnalysisManger>` has `predictPassResult` method, which takes pass name (i.e. SROA, GVN...), IR (i.e. Function, Module...) as inputs and returns the estimated result of the pass. In that file, we can define prediction algorithms seprately. In PassManager, the predictor is called before the pass execcution (currently only before function passes).
+       This file defines Pass Result Predictor framework interfaces. `MLPassResultPredcitor<IRUnit,AnalysisManger>` has `predictPassResult` method, which takes pass name (i.e. SROA, GVN...), IR (i.e. Function, Module...) as inputs and returns the estimated result of the pass. In that file, we can define prediction algorithms seprately. In PassManager, the predictor is called before the pass execcution (currently only before function passes).  
+    * llvm/Analysis/PassReulstAnalysis.{h, cpp}
+       This defineds Analysis pass 
