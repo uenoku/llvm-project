@@ -17,7 +17,6 @@ Make sure that you are using New Pass Manager
 ```
 $ ./build/bin/clang++ foo.cpp -O3 -mllvm --run-batch-prediction
 
-$ ./build/bin/clang++ foo.cpp -O3 -mllvm --run-prediction
 ```
 
 ### Dumping Data by using lnt
