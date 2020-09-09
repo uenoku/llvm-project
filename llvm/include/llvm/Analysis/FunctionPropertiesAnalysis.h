@@ -24,8 +24,9 @@ class Function;
 
 class FunctionPropertiesInfo {
 public:
-  static FunctionPropertiesInfo getFunctionPropertiesInfo(const Function &F
-                                                          );
+  static FunctionPropertiesInfo getFunctionPropertiesInfo(const Function &F);
+  static FunctionPropertiesInfo getFunctionPropertiesInfo(const Function &F,
+                                                          const LoopInfo &LI);
 
   void print(raw_ostream &OS) const;
   std::vector<int64_t> toVec() const;
@@ -95,7 +96,8 @@ public:
 
 class FunctionPropertiesSmall {
 public:
-  static FunctionPropertiesSmall getFunctionPropertiesSmall(const Function &F, const LoopInfo &LI);
+  static FunctionPropertiesSmall getFunctionPropertiesSmall(const Function &F,
+                                                            const LoopInfo &LI);
   // Small Subset of FunctionProperties Analsyis
   int64_t InstructionCount = 0;
   int64_t BasicBlockWithSingleSuccessor = 0;

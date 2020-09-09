@@ -18,10 +18,22 @@
 
 #define DEBUG_TYPE "pass-prop"
 using namespace llvm;
-
 FunctionPropertiesInfo
-FunctionPropertiesInfo::getFunctionPropertiesInfo(const Function &F
-                                                  ) {
+FunctionPropertiesInfo::getFunctionPropertiesInfo(const Function &F,
+                                                  const LoopInfo &LI) {
+  auto FPI = FunctionPropertiesInfo::getFunctionPropertiesInfo(F);
+  // Loop Depth of the Basic Block
+  int64_t LoopDepth;
+  for (const auto &BB : F) {
+    LoopDepth = LI.getLoopDepth(&BB);
+    if (FPI.MaxLoopDepth < LoopDepth)
+      FPI.MaxLoopDepth = LoopDepth;
+  }
+  FPI.TopLevelLoopCount += llvm::size(LI);
+  return FPI;
+}
+FunctionPropertiesInfo
+FunctionPropertiesInfo::getFunctionPropertiesInfo(const Function &F) {
 
   FunctionPropertiesInfo FPI;
   FPI.OpCodeCount.fill(0);
@@ -92,7 +104,7 @@ FunctionPropertiesInfo::getFunctionPropertiesInfo(const Function &F
     // Loop Depth of the Basic Block
     int64_t LoopDepth;
     // LoopDepth = LI.getLoopDepth(&BB);
-    //if (FPI.MaxLoopDepth < LoopDepth)
+    // if (FPI.MaxLoopDepth < LoopDepth)
     //  FPI.MaxLoopDepth = LoopDepth;
   }
   // FPI.TopLevelLoopCount += llvm::size(LI);
@@ -166,9 +178,9 @@ std::vector<int64_t> FunctionPropertiesInfo::toVec() const {
   auto Debug = [](std::string s) { LLVM_DEBUG(dbgs() << s << ", ";); };
 #define REGISTER(VAR, NAME)                                                    \
   {                                                                            \
-    Debug(#NAME);                                                                  \
+    Debug(#NAME);                                                              \
     VAR.push_back(NAME);                                                       \
-  }                                                                            
+  }
   REGISTER(obj, BasicBlockCount);
   REGISTER(obj, BlocksReachedFromConditionalInstruction);
   REGISTER(obj, Uses);
@@ -213,8 +225,7 @@ AnalysisKey FunctionPropertiesAnalysis::Key;
 
 FunctionPropertiesInfo
 FunctionPropertiesAnalysis::run(Function &F, FunctionAnalysisManager &FAM) {
-  return FunctionPropertiesInfo::getFunctionPropertiesInfo(
-      F);
+  return FunctionPropertiesInfo::getFunctionPropertiesInfo(F);
 }
 
 FunctionPropertiesSmall

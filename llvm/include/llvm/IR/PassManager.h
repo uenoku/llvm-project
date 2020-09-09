@@ -516,8 +516,16 @@ public:
 
     MLPassResultPredictor<IRUnitT, AnalysisManagerT> PRP;
     bool ShouldRun = true;
+    std::vector<StringRef> names;
+    for (unsigned Idx = 0, Size = Passes.size(); Idx != Size; ++Idx) {
+      names.push_back(Passes[Idx]->name());
+    }
+    auto res_opt = PRP.predictPassResults(names, IR, AM);
+    bool has_res_opt = res_opt.hasValue();
+    std::vector<bool> results;
 
     for (unsigned Idx = 0, Size = Passes.size(); Idx != Size; ++Idx) {
+      PRP.updatePassResults(names, IR, AM, res_opt, Idx, results);
       auto *P = Passes[Idx].get();
 
       // Check the PassInstrumentation's BeforePass callbacks before running the
@@ -538,14 +546,20 @@ public:
           PRP.dumpAllResult(IR, AM);
           ShouldRun = false;
         }
-
-        if (PRP.predictPassResult(IR, AM, P->name())) 
+        bool run_pass = true;
+        if (has_res_opt) {
+          run_pass = res_opt.getValue()[Idx];
+        } else {
+          run_pass = PRP.predictPassResult(IR, AM, P->name());
+        }
+        if (run_pass)
           PassPA = P->run(IR, AM, ExtraArgs...);
-
       }
 
       if (!PassPA.areAllPreserved())
         ShouldRun = true;
+
+      results.push_back(!PassPA.areAllPreserved());
 
       // Call onto PassInstrumentation's AfterPass callbacks immediately after
       // running the pass.
@@ -574,6 +588,7 @@ public:
 
     if (DebugLogging)
       dbgs() << "Finished " << getTypeName<IRUnitT>() << " pass manager run.\n";
+    PRP.dumpAfterPasses(names, IR, AM, results);
 
     return PA;
   }

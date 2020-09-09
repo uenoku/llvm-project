@@ -24,6 +24,7 @@
 #include "llvm/Support/TimeProfiler.h"
 #include "llvm/Support/TypeName.h"
 #include <memory>
+#include <optional>
 
 namespace llvm {
 class Function;
@@ -42,6 +43,16 @@ public:
   MLPassResultPredictor() {}
   virtual ~MLPassResultPredictor() = default;
   bool predictPassResult(IRUnitT &IR, AnalysisManagerT &AM, StringRef PassName);
+  Optional<std::vector<bool>> predictPassResults(std::vector<StringRef> &Passes,
+                                                 IRUnitT &IR,
+                                                 AnalysisManagerT &AM
+                                                 );
+  void updatePassResults(std::vector<StringRef> &names, IRUnitT &In,
+                         AnalysisManagerT &MAM,
+                         Optional<std::vector<bool>> &res, int index, std::vector<bool> &previous_result);
+  void dumpAfterPasses(std::vector<StringRef> &names, IRUnitT &In,
+                         AnalysisManagerT &MAM,
+                         std::vector<bool> &res);
   void dumpAllResult(IRUnitT &IR, AnalysisManagerT &);
 };
 

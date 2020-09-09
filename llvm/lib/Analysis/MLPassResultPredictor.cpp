@@ -127,6 +127,11 @@
 #include "llvm/Transforms/Scalar/WarnMissedTransforms.h"
 #include "llvm/Transforms/Utils/Cloning.h"
 
+#include "Model12.h"
+#include "Model18.h"
+#include "Model24.h"
+#include "Model6.h"
+
 #define DEBUG_TYPE "pass-result-predictor-ml"
 
 namespace llvm {
@@ -136,6 +141,15 @@ static llvm::cl::opt<unsigned> PredictionReuse("prediction-reuse", cl::Hidden,
 static cl::opt<bool> RunPrediction("run-prediction", cl::Hidden,
                                    cl::desc("pass result predictor"),
                                    cl::init(false));
+static cl::opt<bool> RunBatchPrediction("run-batch-prediction", cl::Hidden,
+                                   cl::desc("pass result predictor"),
+                                   cl::init(false));
+
+
+static cl::opt<bool> DumpBatch("dump-batch", cl::Hidden,
+                               cl::desc("pass result predictor"),
+                               cl::init(false));
+
 static cl::opt<bool> DumpAllResult("dump-all-result", cl::Hidden,
                                    cl::desc("dump pass results"),
                                    cl::init(false));
@@ -151,12 +165,24 @@ static cl::opt<PredictionMethod> PMethod(
     cl::values(clEnumVal(SingleNN, "Single pass prediction with NN"),
                clEnumVal(SingleLogistic,
                          "Single pass prediction with logistic regression"),
-               clEnumVal(BatchNN, "Batch pass prediction with NN")));
+               clEnumVal(BatchNN, "Batch pass prediction with NN"),
+               clEnumVal(Sequential, "Sequential model with pass dep")));
+
 STATISTIC(NumPredictionForTrivial, "Number of prediction for prediction");
 STATISTIC(NumPrediction, "Number of prediction");
 STATISTIC(NumPassesRun, "Number of run of passes");
 STATISTIC(NumPredictionTrue, "Number of prediction true");
 STATISTIC(NumPredictionFalse, "Number of prediction false");
+STATISTIC(NumBatch, "Show that batch mode");
+std::unique_ptr<llvm::raw_fd_ostream> pid_logger(std::string prefix) {
+  // Logging to temp file.
+  int pid = getpid();
+  auto fname = prefix + std::to_string(pid) + ".txt";
+  std::error_code EC;
+  auto os = std::make_unique<llvm::raw_fd_ostream>(fname, EC,
+                                                   llvm::sys::fs::OF_Append);
+  return os;
+}
 template <>
 void MLPassResultPredictor<Function, FunctionAnalysisManager>::dumpAllResult(
     Function &IR, FunctionAnalysisManager &FAM) {
@@ -291,7 +317,7 @@ bool predictPassResultBySingleLogistic(Function &F,
           FAM.getResult<FunctionPropertiesAnalysis>(F);                        \
       ActualRun = true;                                                        \
       return predict_##NAME(FPI);                                              \
-    } \
+    }                                                                          \
   }
   CHECK(ReassociatePass);
   CHECK(InstSimplifyPass);
@@ -444,4 +470,139 @@ bool MLPassResultPredictor<Function, FunctionAnalysisManager>::
   }
   return Result;
 }
+
+static std::unique_ptr<Model6> model6;
+static std::unique_ptr<Model12> model12;
+static std::unique_ptr<Model18> model18;
+static std::unique_ptr<Model24> model24;
+
+template <>
+void MLPassResultPredictor<Function, FunctionAnalysisManager>::
+    updatePassResults(std::vector<StringRef> &names, Function &F,
+                      FunctionAnalysisManager &FAM,
+                      Optional<std::vector<bool>> &res, int index,
+                      std::vector<bool> &previous_result) {
+  if (!res || names.size() != 31)
+    return;
+  // if (index == 5 || index == 14 || index == 16 || index == 26 || index == 29)
+  // {
+  //   // CorrelatedValueProp -> SimplifyCFG
+  //   res.getValue()[index] = previous_result.back();
+  //   return;
+  // }
+  if (F.getInstructionCount() < 5) { // Don't call for small function
+    return;
+  }
+  if (index == 6 || index == 12 || index == 18 || index == 24 || index == 30) {
+    // predict next 6 pass
+    FunctionPropertiesAnalysis::Result FPI =
+        FAM.getResult<FunctionPropertiesAnalysis>(F);
+    auto CodeFeature = FPI.toVec();
+    if (DumpBatch) {
+
+      auto os = pid_logger("batch7");
+      if (index != 6) {
+        for (int i = previous_result.size() - 12; i < previous_result.size();
+             i++) {
+          *os << previous_result[i] << "\t";
+        }
+        *os << "\n";
+      }
+      if (index != 30) {
+        *os << index << "\t";
+        for (int i = 0; i < CodeFeature.size(); i++) {
+          *os << CodeFeature[i] << "\t";
+        }
+        // *os << "\n";
+      }
+    } else if (RunBatchPrediction) {
+      NumBatch++;
+      if (index == 30)
+        return;
+        // FIXME: Avoid macro ....
+#define CHECK(NAME)                                                            \
+  if (index == NAME) {                                                         \
+    if (!model##NAME) {                                                        \
+      model##NAME = std::make_unique<Model##NAME>();                           \
+    }                                                                          \
+    for (int i = 0; i < CodeFeature.size(); i++) {                             \
+      model##NAME->arg_feed_Input(0, i) = CodeFeature[i];                      \
+    }                                                                          \
+    for (int i = 0; i < 6; i++) {                                              \
+      model6->arg_feed_Input(0, i + CodeFeature.size()) =                      \
+          previous_result[previous_result.size() - i - 1];                     \
+    }                                                                          \
+    model##NAME->Run();                                                        \
+    NumPrediction++;                                                           \
+    for (int i = 0; i < 6; i++) {                                              \
+      res.getValue()[index + i] = model##NAME->result0(0, i) > 0.5;            \
+      (res.getValue()[index + i] ? NumPredictionTrue : NumPredictionFalse)++;  \
+    }                                                                          \
+  }
+
+      CHECK(6);
+      CHECK(12);
+      CHECK(18);
+      CHECK(24);
+
+      LLVM_DEBUG({
+        dbgs() << F.getName() << " " << index << "\n";
+        for (int i = 0; i < 6; i++) {
+          dbgs() << res.getValue()[index + i] << " ";
+        }
+        dbgs() << "\n";
+      });
+    }
+  }
+#undef CHECK
+  return;
+}
+template <>
+void MLPassResultPredictor<Module, ModuleAnalysisManager>::updatePassResults(
+    std::vector<StringRef> &names, Module &In, ModuleAnalysisManager &MAM,
+    Optional<std::vector<bool>> &res, int index,
+    std::vector<bool> &previous_result) {
+
+  return;
+}
+template <>
+Optional<std::vector<bool>>
+MLPassResultPredictor<Function, FunctionAnalysisManager>::predictPassResults(
+    std::vector<StringRef> &names, Function &In, FunctionAnalysisManager &MAM) {
+  // dbgs() << names.size() << "\n";
+  if (names.size() != 31 || In.getInstructionCount() < 5)
+    return None;
+
+  // auto os = pid_logger("batch6");
+  // *os << "start\n";
+  std::vector<bool> res(31, true);
+  return res;
+}
+template <>
+Optional<std::vector<bool>>
+MLPassResultPredictor<Module, ModuleAnalysisManager>::predictPassResults(
+    std::vector<StringRef> &names, Module &In, ModuleAnalysisManager &MAM) {
+  // For now, we don't predict Module pass results.
+  return None;
+}
+template <>
+void MLPassResultPredictor<Module, ModuleAnalysisManager>::dumpAfterPasses(
+    std::vector<StringRef> &names, Module &In, ModuleAnalysisManager &MAM,
+    std::vector<bool> &res) {}
+template <>
+void MLPassResultPredictor<Function, FunctionAnalysisManager>::dumpAfterPasses(
+    std::vector<StringRef> &names, Function &In, FunctionAnalysisManager &MAM,
+    std::vector<bool> &res) {
+  if (DumpBatch) {
+    auto os = pid_logger("dep");
+    *os << "start"
+        << "\n";
+    for (int i = 0; i < names.size(); i++) {
+      *os << i << "\t" << names[i] << "\t" << res[i] << "\n";
+    }
+    *os << "end"
+        << "\n";
+  }
+}
+
 } // namespace llvm
