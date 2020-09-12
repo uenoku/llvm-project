@@ -32,10 +32,11 @@ class Module;
 class MLInlineAdvice;
 struct PredictorInput;
 enum PredictionMethod {
-    BatchNN,
-    SingleLogistic,
-    SingleNN,
-  };
+  BatchNN,
+  SingleLogistic,
+  SingleNN,
+  Sequential,
+};
 /// ML guided Pass Result Predictor
 template <typename IRUnitT, typename AnalysisManagerT>
 struct MLPassResultPredictor {
