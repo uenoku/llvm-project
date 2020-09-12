@@ -131,7 +131,10 @@
 #include "Model18.h"
 #include "Model24.h"
 #include "Model6.h"
-
+#include "ModelO2_12.h"
+#include "ModelO2_18.h"
+#include "ModelO2_24.h"
+#include "ModelO2_6.h"
 #define DEBUG_TYPE "pass-result-predictor-ml"
 
 namespace llvm {
@@ -142,9 +145,8 @@ static cl::opt<bool> RunPrediction("run-prediction", cl::Hidden,
                                    cl::desc("pass result predictor"),
                                    cl::init(false));
 static cl::opt<bool> RunBatchPrediction("run-batch-prediction", cl::Hidden,
-                                   cl::desc("pass result predictor"),
-                                   cl::init(false));
-
+                                        cl::desc("pass result predictor"),
+                                        cl::init(false));
 
 static cl::opt<bool> DumpBatch("dump-batch", cl::Hidden,
                                cl::desc("pass result predictor"),
@@ -476,36 +478,47 @@ static std::unique_ptr<Model12> model12;
 static std::unique_ptr<Model18> model18;
 static std::unique_ptr<Model24> model24;
 
+static std::unique_ptr<ModelO2_6> modelO2_6;
+static std::unique_ptr<ModelO2_12> modelO2_12;
+static std::unique_ptr<ModelO2_18> modelO2_18;
+static std::unique_ptr<ModelO2_24> modelO2_24;
+
 template <>
 void MLPassResultPredictor<Function, FunctionAnalysisManager>::
     updatePassResults(std::vector<StringRef> &names, Function &F,
                       FunctionAnalysisManager &FAM,
                       Optional<std::vector<bool>> &res, int index,
                       std::vector<bool> &previous_result) {
-  if (!res || names.size() != 31)
+
+  TimeTraceScope TimeScope("Prediction time", F.getName());
+  if (!res || names.size() < 30)
     return;
-  // if (index == 5 || index == 14 || index == 16 || index == 26 || index == 29)
-  // {
-  //   // CorrelatedValueProp -> SimplifyCFG
-  //   res.getValue()[index] = previous_result.back();
-  //   return;
-  // }
+
   if (F.getInstructionCount() < 5) { // Don't call for small function
     return;
   }
+
+  if (index == 5 || index == 14 || index == 16 || index == 26 || index == 29) {
+    // CorrelatedValueProp -> SimplifyCFG
+    res.getValue()[index] = previous_result.back();
+    return;
+  }
+
   if (index == 6 || index == 12 || index == 18 || index == 24 || index == 30) {
     // predict next 6 pass
     FunctionPropertiesAnalysis::Result FPI =
         FAM.getResult<FunctionPropertiesAnalysis>(F);
     auto CodeFeature = FPI.toVec();
     if (DumpBatch) {
-
       auto os = pid_logger("batch7");
+
       if (index != 6) {
         for (int i = previous_result.size() - 12; i < previous_result.size();
              i++) {
           *os << previous_result[i] << "\t";
         }
+        *os << "\n";
+      } else {
         *os << "\n";
       }
       if (index != 30) {
@@ -529,7 +542,7 @@ void MLPassResultPredictor<Function, FunctionAnalysisManager>::
       model##NAME->arg_feed_Input(0, i) = CodeFeature[i];                      \
     }                                                                          \
     for (int i = 0; i < 6; i++) {                                              \
-      model6->arg_feed_Input(0, i + CodeFeature.size()) =                      \
+      model##NAME->arg_feed_Input(0, i + CodeFeature.size()) =                 \
           previous_result[previous_result.size() - i - 1];                     \
     }                                                                          \
     model##NAME->Run();                                                        \
@@ -540,10 +553,36 @@ void MLPassResultPredictor<Function, FunctionAnalysisManager>::
     }                                                                          \
   }
 
-      CHECK(6);
-      CHECK(12);
-      CHECK(18);
-      CHECK(24);
+#define CHECK2(NAME)                                                            \
+  if (index == NAME) {                                                         \
+    if (!model##NAME) {                                                        \
+      modelO2_##NAME = std::make_unique<ModelO2_##NAME>();                           \
+    }                                                                          \
+    for (int i = 0; i < CodeFeature.size(); i++) {                             \
+      modelO2_##NAME->arg_feed_Input(0, i) = CodeFeature[i];                      \
+    }                                                                          \
+    for (int i = 0; i < 6; i++) {                                              \
+      modelO2_##NAME->arg_feed_Input(0, i + CodeFeature.size()) =                 \
+          previous_result[previous_result.size() - i - 1];                     \
+    }                                                                          \
+    modelO2_##NAME->Run();                                                        \
+    NumPrediction++;                                                           \
+    for (int i = 0; i < 6; i++) {                                              \
+      res.getValue()[index + i] = modelO2_##NAME->result0(0, i) > 0.5;            \
+      (res.getValue()[index + i] ? NumPredictionTrue : NumPredictionFalse)++;  \
+    }                                                                          \
+  }
+      if (names.size() == 31) {
+        CHECK(6);
+        CHECK(12);
+        CHECK(18);
+        CHECK(24);
+      } else if (names.size() == 30) {
+        CHECK2(6);
+        CHECK2(12);
+        CHECK2(18);
+        CHECK2(24);
+      }
 
       LLVM_DEBUG({
         dbgs() << F.getName() << " " << index << "\n";
@@ -555,6 +594,8 @@ void MLPassResultPredictor<Function, FunctionAnalysisManager>::
     }
   }
 #undef CHECK
+#undef CHECK2
+
   return;
 }
 template <>
@@ -562,6 +603,14 @@ void MLPassResultPredictor<Module, ModuleAnalysisManager>::updatePassResults(
     std::vector<StringRef> &names, Module &In, ModuleAnalysisManager &MAM,
     Optional<std::vector<bool>> &res, int index,
     std::vector<bool> &previous_result) {
+  if (index + 1 == names.size() && DumpBatch) {
+    auto os = pid_logger("batch8");
+    *os << names[0] << "\t";
+    for (int i = 0; i < previous_result.size(); i++) {
+      *os << previous_result[i] << "\t";
+    }
+    *os << "\n";
+  }
 
   return;
 }
@@ -569,13 +618,12 @@ template <>
 Optional<std::vector<bool>>
 MLPassResultPredictor<Function, FunctionAnalysisManager>::predictPassResults(
     std::vector<StringRef> &names, Function &In, FunctionAnalysisManager &MAM) {
-  // dbgs() << names.size() << "\n";
-  if (names.size() != 31 || In.getInstructionCount() < 5)
+  if (names.size() < 30 || In.getInstructionCount() < 5)
     return None;
 
   // auto os = pid_logger("batch6");
   // *os << "start\n";
-  std::vector<bool> res(31, true);
+  std::vector<bool> res(names.size(), true);
   return res;
 }
 template <>
@@ -583,6 +631,16 @@ Optional<std::vector<bool>>
 MLPassResultPredictor<Module, ModuleAnalysisManager>::predictPassResults(
     std::vector<StringRef> &names, Module &In, ModuleAnalysisManager &MAM) {
   // For now, we don't predict Module pass results.
+
+  // if (names.size() == 9 && DumpBatch) {
+  //   std::vector<bool> res(9, true);
+  //   dbgs() << names.size() << "\n";
+  //   for (auto s : names)
+  //     dbgs() << s << " ";
+  //   dbgs() << "\n";
+  //   return res;
+  // }
+
   return None;
 }
 template <>
@@ -602,6 +660,13 @@ void MLPassResultPredictor<Function, FunctionAnalysisManager>::dumpAfterPasses(
     }
     *os << "end"
         << "\n";
+    if (res.size() == 30) {
+      auto os = pid_logger("batch7");
+      for (int i = res.size() - 12; i < res.size(); i++) {
+        *os << res[i] << "\t";
+      }
+      *os << "\n";
+    }
   }
 }
 
