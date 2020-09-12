@@ -517,8 +517,10 @@ public:
     MLPassResultPredictor<IRUnitT, AnalysisManagerT> PRP;
     bool ShouldRun = true;
     std::vector<StringRef> names;
-    for (unsigned Idx = 0, Size = Passes.size(); Idx != Size; ++Idx) {
-      names.push_back(Passes[Idx]->name());
+    if(PRP.valid()){
+      for (unsigned Idx = 0, Size = Passes.size(); Idx != Size; ++Idx) {
+        names.push_back(Passes[Idx]->name());
+      }
     }
     auto res_opt = PRP.predictPassResults(names, IR, AM);
     bool has_res_opt = res_opt.hasValue();

@@ -553,22 +553,22 @@ void MLPassResultPredictor<Function, FunctionAnalysisManager>::
     }                                                                          \
   }
 
-#define CHECK2(NAME)                                                            \
+#define CHECK2(NAME)                                                           \
   if (index == NAME) {                                                         \
     if (!model##NAME) {                                                        \
-      modelO2_##NAME = std::make_unique<ModelO2_##NAME>();                           \
+      modelO2_##NAME = std::make_unique<ModelO2_##NAME>();                     \
     }                                                                          \
     for (int i = 0; i < CodeFeature.size(); i++) {                             \
-      modelO2_##NAME->arg_feed_Input(0, i) = CodeFeature[i];                      \
+      modelO2_##NAME->arg_feed_Input(0, i) = CodeFeature[i];                   \
     }                                                                          \
     for (int i = 0; i < 6; i++) {                                              \
-      modelO2_##NAME->arg_feed_Input(0, i + CodeFeature.size()) =                 \
+      modelO2_##NAME->arg_feed_Input(0, i + CodeFeature.size()) =              \
           previous_result[previous_result.size() - i - 1];                     \
     }                                                                          \
-    modelO2_##NAME->Run();                                                        \
+    modelO2_##NAME->Run();                                                     \
     NumPrediction++;                                                           \
     for (int i = 0; i < 6; i++) {                                              \
-      res.getValue()[index + i] = modelO2_##NAME->result0(0, i) > 0.5;            \
+      res.getValue()[index + i] = modelO2_##NAME->result0(0, i) > 0.5;         \
       (res.getValue()[index + i] ? NumPredictionTrue : NumPredictionFalse)++;  \
     }                                                                          \
   }
@@ -669,5 +669,11 @@ void MLPassResultPredictor<Function, FunctionAnalysisManager>::dumpAfterPasses(
     }
   }
 }
-
+template <> bool MLPassResultPredictor<Module, ModuleAnalysisManager>::valid() {
+  return DumpBatch || RunBatchPrediction;
+}
+template <>
+bool MLPassResultPredictor<Function, FunctionAnalysisManager>::valid() {
+  return DumpBatch || RunBatchPrediction;
+}
 } // namespace llvm

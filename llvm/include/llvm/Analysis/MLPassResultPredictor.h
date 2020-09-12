@@ -54,6 +54,8 @@ public:
                          AnalysisManagerT &MAM,
                          std::vector<bool> &res);
   void dumpAllResult(IRUnitT &IR, AnalysisManagerT &);
+
+  bool valid();
 };
 
 } // namespace llvm
