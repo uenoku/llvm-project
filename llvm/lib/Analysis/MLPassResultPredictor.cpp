@@ -490,7 +490,6 @@ void MLPassResultPredictor<Function, FunctionAnalysisManager>::
                       Optional<std::vector<bool>> &res, int index,
                       std::vector<bool> &previous_result) {
 
-  TimeTraceScope TimeScope("Prediction time", F.getName());
   if (!res || names.size() < 30)
     return;
 
@@ -529,7 +528,6 @@ void MLPassResultPredictor<Function, FunctionAnalysisManager>::
         // *os << "\n";
       }
     } else if (RunBatchPrediction) {
-      NumBatch++;
       if (index == 30)
         return;
         // FIXME: Avoid macro ....
