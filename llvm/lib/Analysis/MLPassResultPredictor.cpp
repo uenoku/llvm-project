@@ -561,7 +561,7 @@ void MLPassResultPredictor<Function, FunctionAnalysisManager>::
     }                                                                          \
     for (int i = 0; i < 6; i++) {                                              \
       modelO2_##NAME->arg_feed_Input(0, i + CodeFeature.size()) =              \
-          previous_result[previous_result.size() - i - 1];                     \
+          previous_result[previous_result.size() - 6 + i];                     \
     }                                                                          \
     modelO2_##NAME->Run();                                                     \
     NumPrediction++;                                                           \
