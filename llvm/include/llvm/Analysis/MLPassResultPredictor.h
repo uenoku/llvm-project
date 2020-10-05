@@ -30,28 +30,20 @@ namespace llvm {
 class Function;
 class Module;
 class MLInlineAdvice;
-struct PredictorInput;
-enum PredictionMethod {
-  BatchNN,
-  SingleLogistic,
-  SingleNN,
-  Sequential,
-};
 /// ML guided Pass Result Predictor
 template <typename IRUnitT, typename AnalysisManagerT>
 struct MLPassResultPredictor {
 public:
   MLPassResultPredictor() {}
   virtual ~MLPassResultPredictor() = default;
-  bool predictPassResult(IRUnitT &IR, AnalysisManagerT &AM, StringRef PassName);
-  Optional<std::vector<bool>> predictPassResults(std::vector<StringRef> &Passes,
+  Optional<std::vector<bool>> predictPassResults(int names,
                                                  IRUnitT &IR,
                                                  AnalysisManagerT &AM
                                                  );
-  void updatePassResults(std::vector<StringRef> &names, IRUnitT &In,
+  void updatePassResults(int names, IRUnitT &In,
                          AnalysisManagerT &MAM,
                          Optional<std::vector<bool>> &res, int index, std::vector<bool> &previous_result);
-  void dumpAfterPasses(std::vector<StringRef> &names, IRUnitT &In,
+  void dumpAfterPasses(int names, IRUnitT &In,
                          AnalysisManagerT &MAM,
                          std::vector<bool> &res);
   void dumpAllResult(IRUnitT &IR, AnalysisManagerT &);

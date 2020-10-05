@@ -516,25 +516,23 @@ public:
 
     MLPassResultPredictor<IRUnitT, AnalysisManagerT> PRP;
     bool ShouldRun = true;
-    std::vector<StringRef> names;
-    if(PRP.valid()){
-      for (unsigned Idx = 0, Size = Passes.size(); Idx != Size; ++Idx) {
-        names.push_back(Passes[Idx]->name());
-      }
-    }
-    auto res_opt = PRP.predictPassResults(names, IR, AM);
+    int sz = Passes.size();
+    auto res_opt = PRP.predictPassResults(sz, IR, AM);
     bool has_res_opt = res_opt.hasValue();
     std::vector<bool> results;
 
     for (unsigned Idx = 0, Size = Passes.size(); Idx != Size; ++Idx) {
-      PRP.updatePassResults(names, IR, AM, res_opt, Idx, results);
+      PRP.updatePassResults(sz, IR, AM, res_opt, Idx, results);
       auto *P = Passes[Idx].get();
 
       // Check the PassInstrumentation's BeforePass callbacks before running the
       // pass, skip its execution completely if asked to (callback returns
       // false).
       if (!PI.runBeforePass<IRUnitT>(*P, IR))
+      {
+        results.push_back(false);
         continue;
+      }
 
       if (DebugLogging)
         dbgs() << "Running pass: " << P->name() << " on " << IR.getName()
@@ -544,16 +542,10 @@ public:
 
       {
         TimeTraceScope TimeScope(P->name(), IR.getName());
-        if (CallResult && ShouldRun) {
-          PRP.dumpAllResult(IR, AM);
-          ShouldRun = false;
-        }
         bool run_pass = true;
         if (has_res_opt) {
           run_pass = res_opt.getValue()[Idx];
-        } else {
-          run_pass = PRP.predictPassResult(IR, AM, P->name());
-        }
+        } 
         if (run_pass)
           PassPA = P->run(IR, AM, ExtraArgs...);
       }
@@ -590,7 +582,7 @@ public:
 
     if (DebugLogging)
       dbgs() << "Finished " << getTypeName<IRUnitT>() << " pass manager run.\n";
-    PRP.dumpAfterPasses(names, IR, AM, results);
+    PRP.dumpAfterPasses(sz, IR, AM, results);
 
     return PA;
   }
@@ -1299,8 +1291,6 @@ public:
     PassInstrumentation PI = AM.getResult<PassInstrumentationAnalysis>(M);
 
     PreservedAnalyses PA = PreservedAnalyses::all();
-    MLPassResultPredictor<Function, FunctionAnalysisManager> PRP;
-    bool ShouldRun = true;
 
     for (Function &F : M) {
       if (F.isDeclaration())
@@ -1315,16 +1305,8 @@ public:
       PreservedAnalyses PassPA;
       {
         TimeTraceScope TimeScope(Pass.name(), F.getName());
-        if (ShouldRun) {
-          PRP.dumpAllResult(F, FAM);
-          ShouldRun = false;
-        }
-        if (PRP.predictPassResult(F, FAM, Pass.name())) {
-          PassPA = Pass.run(F, FAM);
-        }
+        PassPA = Pass.run(F, FAM);
       }
-      if (!PassPA.areAllPreserved())
-        ShouldRun = true;
 
       PI.runAfterPass(Pass, F, PassPA);
 
@@ -1467,9 +1449,6 @@ template <typename PassT>
 RepeatedPass<PassT> createRepeatedPass(int Count, PassT P) {
   return RepeatedPass<PassT>(Count, std::move(P));
 }
-
-
-
 
 } // end namespace llvm
 

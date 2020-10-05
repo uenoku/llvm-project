@@ -13,6 +13,12 @@ STATISTIC(NumActualInference, "Number of actitual run");
 using namespace llvm;
 
 #include "AllPredictModel.h"
+#include "Model6.h"
+#include "Model12.h"
+#include "Model18.h"
+#include "Model24.h"
+
+
 
 namespace llvm {
 class AllPassResultPredictionModelRunner
