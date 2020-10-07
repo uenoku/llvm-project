@@ -15,7 +15,7 @@ Note that without Tensorflow AOT, the build will fail.
 ### Run with Inference 
 Make sure that you are using New Pass Manager
 ```
-$ ./build/bin/clang++ foo.cpp -O3 -mllvm --run-batch-prediction 
+$ ./build/bin/clang++ foo.cpp -O3 -fexperimental-new-pass-manager -mllvm --run-batch-prediction
 
 ```
 
