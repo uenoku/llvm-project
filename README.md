@@ -15,11 +15,12 @@ Note that without Tensorflow AOT, the build will fail.
 ### Run with Inference 
 Make sure that you are using New Pass Manager
 ```
-$ ./build/bin/clang++ foo.cpp -O3 -mllvm --run-batch-prediction
+$ ./build/bin/clang++ foo.cpp -O3 -mllvm --run-batch-prediction 
 
 ```
 
 ### Dumping Data by using lnt
+It's not recommend to run
 ```
 $ lnt runtest test-suite  --sandbox ~/sandbox/ --cc $LLVM_HOME/bulid/bin/clang --cxx $LLVM_HOME/bulid/bin/clang -j16 --test-suite ~/llvm-test-suite/ --cppflags="-fexperimental-new-pass-manager -O3 -mllvm --dump-all-result
 $ python3 $LLVM_HOME/script/accmulate_data.py ~/sandbox/test-xxx
