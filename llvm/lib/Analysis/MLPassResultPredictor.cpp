@@ -166,25 +166,25 @@ std::unique_ptr<llvm::raw_fd_ostream> pid_logger(std::string prefix) {
                                                    llvm::sys::fs::OF_Append);
   return os;
 }
-
-static std::unique_ptr<Model6> model6;
-static std::unique_ptr<Model12> model12;
-static std::unique_ptr<Model18> model18;
-static std::unique_ptr<Model24> model24;
-
+// Predictors
+// FIXME: Move these static variables to LLVM Context as soon as possible.
+static std::unique_ptr<Model6> modelO3_6;
+static std::unique_ptr<Model12> modelO3_12;
+static std::unique_ptr<Model18> modelO3_18;
+static std::unique_ptr<Model24> modelO3_24;
 static std::unique_ptr<ModelO2_6> modelO2_6;
 static std::unique_ptr<ModelO2_12> modelO2_12;
 static std::unique_ptr<ModelO2_18> modelO2_18;
 static std::unique_ptr<ModelO2_24> modelO2_24;
 
-
 template <>
 void MLPassResultPredictor<Function, FunctionAnalysisManager>::
-    updatePassResults(int names, Function &F, FunctionAnalysisManager &FAM,
-                      Optional<std::vector<bool>> &res, int index,
-                      std::vector<bool> &previous_result) {
-
-  if (!res || names < 30)
+    updatePassResults(int LengthOfPassPipeline, Function &F,
+                      FunctionAnalysisManager &FAM,
+                      Optional<std::vector<bool>> &Result, int index,
+                      std::vector<bool> &PreviousResult) {
+  // FIXME: Bad hack
+  if (!Result || LengthOfPassPipeline < 30)
     return;
 
   if (F.getInstructionCount() <
@@ -201,12 +201,12 @@ void MLPassResultPredictor<Function, FunctionAnalysisManager>::
           FAM.getResult<FunctionPropertiesAnalysis>(F);
 
       auto CodeFeature = FPI.toVec();
-      auto os = pid_logger("batch7");
+      auto os = pid_logger("batch");
 
       if (index != 6) {
-        for (int i = previous_result.size() - 12; i < previous_result.size();
+        for (int i = PreviousResult.size() - 12; i < PreviousResult.size();
              i++) {
-          *os << previous_result[i] << "\t";
+          *os << PreviousResult[i] << "\t";
         }
         *os << "\n";
       } else {
@@ -217,7 +217,6 @@ void MLPassResultPredictor<Function, FunctionAnalysisManager>::
         for (int i = 0; i < CodeFeature.size(); i++) {
           *os << CodeFeature[i] << "\t";
         }
-        // *os << "\n";
       }
     } else if (RunBatchPrediction) {
       if (index == 30)
@@ -228,27 +227,29 @@ void MLPassResultPredictor<Function, FunctionAnalysisManager>::
       auto CodeFeature = FPI.toVec();
 
       // FIXME: Avoid macro ....
-#define CHECK(NAME)                                                            \
+#define RUN_O3(NAME)                                                           \
   if (index == NAME) {                                                         \
-    if (!model##NAME) {                                                        \
-      model##NAME = std::make_unique<Model##NAME>();                           \
+    if (!modelO3_##NAME) {                                                     \
+      modelO3_##NAME = std::make_unique<Model##NAME>();                        \
     }                                                                          \
     for (int i = 0; i < CodeFeature.size(); i++) {                             \
-      model##NAME->arg_feed_Input(0, i) = CodeFeature[i];                      \
+      modelO3_##NAME->arg_feed_Input(0, i) = CodeFeature[i];                   \
     }                                                                          \
     for (int i = 0; i < 6; i++) {                                              \
-      model##NAME->arg_feed_Input(0, i + CodeFeature.size()) =                 \
-          previous_result[previous_result.size() + i - 6];                     \
+      modelO3_##NAME->arg_feed_Input(0, i + CodeFeature.size()) =              \
+          PreviousResult[PreviousResult.size() + i - 6];                       \
     }                                                                          \
-    model##NAME->Run();                                                        \
+    modelO3_##NAME->Run();                                                     \
     NumPrediction++;                                                           \
     for (int i = 0; i < 6; i++) {                                              \
-      res.getValue()[index + i] = f(model##NAME->result0(0, i)) > threshold;   \
-      (res.getValue()[index + i] ? NumPredictionTrue : NumPredictionFalse)++;  \
+      Result.getValue()[index + i] =                                           \
+          f(modelO3_##NAME->result0(0, i)) > threshold;                        \
+      (Result.getValue()[index + i] ? NumPredictionTrue                        \
+                                    : NumPredictionFalse)++;                   \
     }                                                                          \
   }
 
-#define CHECK2(NAME)                                                           \
+#define RUN_O2(NAME)                                                           \
   if (index == NAME) {                                                         \
     if (!modelO2_##NAME) {                                                     \
       modelO2_##NAME = std::make_unique<ModelO2_##NAME>();                     \
@@ -258,14 +259,15 @@ void MLPassResultPredictor<Function, FunctionAnalysisManager>::
     }                                                                          \
     for (int i = 0; i < 6; i++) {                                              \
       modelO2_##NAME->arg_feed_Input(0, i + CodeFeature.size()) =              \
-          previous_result[previous_result.size() - 6 + i];                     \
+          PreviousResult[PreviousResult.size() - 6 + i];                       \
     }                                                                          \
     modelO2_##NAME->Run();                                                     \
     NumPrediction++;                                                           \
     for (int i = 0; i < 6; i++) {                                              \
-      res.getValue()[index + i] =                                              \
+      Result.getValue()[index + i] =                                           \
           f(modelO2_##NAME->result0(0, i)) > threshold;                        \
-      (res.getValue()[index + i] ? NumPredictionTrue : NumPredictionFalse)++;  \
+      (Result.getValue()[index + i] ? NumPredictionTrue                        \
+                                    : NumPredictionFalse)++;                   \
     }                                                                          \
   }
       auto f = [&](float v) {
@@ -274,75 +276,66 @@ void MLPassResultPredictor<Function, FunctionAnalysisManager>::
         });
         return v;
       };
-      if (names == 31) {
-        CHECK(6);
-        CHECK(12);
-        CHECK(18);
-        CHECK(24);
-      } else if (names == 30) {
-        CHECK2(6);
-        CHECK2(12);
-        CHECK2(18);
-        CHECK2(24);
+      if (LengthOfPassPipeline == 31) {
+        RUN_O3(6);
+        RUN_O3(12);
+        RUN_O3(18);
+        RUN_O3(24);
+      } else if (LengthOfPassPipeline == 30) {
+        RUN_O2(6);
+        RUN_O2(12);
+        RUN_O2(18);
+        RUN_O2(24);
       }
 
       LLVM_DEBUG({
         dbgs() << "\nPassPrediction " << F.getName() << " " << index << "\n";
         for (int i = 0; i < 6; i++) {
-          dbgs() << res.getValue()[index + i] << " ";
+          dbgs() << Result.getValue()[index + i] << " ";
         }
         dbgs() << "\n";
       });
     }
   }
-#undef CHECK
-#undef CHECK2
+#undef RUN_O2
+#undef RUN_O3
 
   return;
 }
 template <>
 void MLPassResultPredictor<Module, ModuleAnalysisManager>::updatePassResults(
-    int names, Module &In, ModuleAnalysisManager &MAM,
-    Optional<std::vector<bool>> &res, int index,
-    std::vector<bool> &previous_result) {
-  if (index + 1 == names && DumpBatch) {
-    auto os = pid_logger("batch8");
-    //    *os << names[0] << "\t";
-    for (int i = 0; i < previous_result.size(); i++) {
-      *os << previous_result[i] << "\t";
-    }
-    *os << "\n";
-  }
-
-  return;
+    int LengthOfPassPipeline, Module &M, ModuleAnalysisManager &MAM,
+    Optional<std::vector<bool>> &Result, int Index,
+    std::vector<bool> &PreviousResult) {
+  // TODO: Support for Module passes
 }
 template <>
 Optional<std::vector<bool>>
 MLPassResultPredictor<Function, FunctionAnalysisManager>::predictPassResults(
-    int names, Function &In, FunctionAnalysisManager &MAM) {
-  // FIXME: Currently, we judge the pipeline by its length. This is very fragile.
-  if (names < 30 || In.getInstructionCount() < size_threshold)
+    int LengthOfPassPipeline, Function &F, FunctionAnalysisManager &MAM) {
+  // FIXME: Currently, we judge the pipeline by its length. This is very
+  // fragile.
+  if (LengthOfPassPipeline < 30 || F.getInstructionCount() < size_threshold)
     return None;
-  std::vector<bool> res(names, true);
-  return res;
+  std::vector<bool> Res(LengthOfPassPipeline, true);
+  return Res;
 }
 template <>
 Optional<std::vector<bool>>
 MLPassResultPredictor<Module, ModuleAnalysisManager>::predictPassResults(
-    int names, Module &In, ModuleAnalysisManager &MAM) {
+    int LengthOfPassPipeline, Module &In, ModuleAnalysisManager &MAM) {
   // For now, we don't predict Module pass results.
 
   return None;
 }
 template <>
 void MLPassResultPredictor<Module, ModuleAnalysisManager>::dumpAfterPasses(
-    int names, Module &In, ModuleAnalysisManager &MAM, std::vector<bool> &res) {
+    int LengthOfPassPipeline, Module &M, ModuleAnalysisManager &MAM, std::vector<bool> &res) {
 }
 template <>
 void MLPassResultPredictor<Function, FunctionAnalysisManager>::dumpAfterPasses(
-    int names, Function &In, FunctionAnalysisManager &MAM,
-    std::vector<bool> &res) {
-}
+    int LengthOfPassPipeline, Function &F, FunctionAnalysisManager &MAM,
+    std::vector<bool> &Result) {}
 template <> bool MLPassResultPredictor<Module, ModuleAnalysisManager>::valid() {
   return DumpBatch || RunBatchPrediction;
 }

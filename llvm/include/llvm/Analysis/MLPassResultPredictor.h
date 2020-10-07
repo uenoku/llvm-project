@@ -36,16 +36,16 @@ struct MLPassResultPredictor {
 public:
   MLPassResultPredictor() {}
   virtual ~MLPassResultPredictor() = default;
-  Optional<std::vector<bool>> predictPassResults(int names,
+  Optional<std::vector<bool>> predictPassResults(int LengthOfPassPipeline,
                                                  IRUnitT &IR,
                                                  AnalysisManagerT &AM
                                                  );
-  void updatePassResults(int names, IRUnitT &In,
+  void updatePassResults(int LengthOfPassPipeline, IRUnitT &In,
                          AnalysisManagerT &MAM,
-                         Optional<std::vector<bool>> &res, int index, std::vector<bool> &previous_result);
-  void dumpAfterPasses(int names, IRUnitT &In,
+                         Optional<std::vector<bool>> &Result, int Index, std::vector<bool> &PreviousResult);
+  void dumpAfterPasses(int LengthOfPassPipeline, IRUnitT &In,
                          AnalysisManagerT &MAM,
-                         std::vector<bool> &res);
+                         std::vector<bool> &Result);
   void dumpAllResult(IRUnitT &IR, AnalysisManagerT &);
 
   bool valid();

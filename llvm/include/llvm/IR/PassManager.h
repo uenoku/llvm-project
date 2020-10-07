@@ -515,22 +515,21 @@ public:
       dbgs() << "Starting " << getTypeName<IRUnitT>() << " pass manager run.\n";
 
     MLPassResultPredictor<IRUnitT, AnalysisManagerT> PRP;
-    bool ShouldRun = true;
-    int sz = Passes.size();
-    auto res_opt = PRP.predictPassResults(sz, IR, AM);
-    bool has_res_opt = res_opt.hasValue();
-    std::vector<bool> results;
 
-    for (unsigned Idx = 0, Size = Passes.size(); Idx != Size; ++Idx) {
-      PRP.updatePassResults(sz, IR, AM, res_opt, Idx, results);
+    unsigned Size = Passes.size();
+    auto ResultOpt = PRP.predictPassResults(Size, IR, AM);
+    bool ResultOptHasValue = ResultOpt.hasValue();
+    std::vector<bool> Results;
+
+    for (unsigned Idx = 0; Idx != Size; ++Idx) {
+      PRP.updatePassResults(Size, IR, AM, ResultOpt, Idx, Results);
       auto *P = Passes[Idx].get();
 
       // Check the PassInstrumentation's BeforePass callbacks before running the
       // pass, skip its execution completely if asked to (callback returns
       // false).
-      if (!PI.runBeforePass<IRUnitT>(*P, IR))
-      {
-        results.push_back(false);
+      if (!PI.runBeforePass<IRUnitT>(*P, IR)) {
+        Results.push_back(false);
         continue;
       }
 
@@ -542,18 +541,12 @@ public:
 
       {
         TimeTraceScope TimeScope(P->name(), IR.getName());
-        bool run_pass = true;
-        if (has_res_opt) {
-          run_pass = res_opt.getValue()[Idx];
-        } 
-        if (run_pass)
+        bool RunPass = ResultOptHasValue ? ResultOpt.getValue()[Idx] : true;
+        if (RunPass)
           PassPA = P->run(IR, AM, ExtraArgs...);
       }
 
-      if (!PassPA.areAllPreserved())
-        ShouldRun = true;
-
-      results.push_back(!PassPA.areAllPreserved());
+      Results.push_back(!PassPA.areAllPreserved());
 
       // Call onto PassInstrumentation's AfterPass callbacks immediately after
       // running the pass.
@@ -582,7 +575,7 @@ public:
 
     if (DebugLogging)
       dbgs() << "Finished " << getTypeName<IRUnitT>() << " pass manager run.\n";
-    PRP.dumpAfterPasses(sz, IR, AM, results);
+    PRP.dumpAfterPasses(Size, IR, AM, Results);
 
     return PA;
   }
