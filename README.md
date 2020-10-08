@@ -16,10 +16,10 @@ Note that without Tensorflow AOT, the build will fail.
 Make sure that you are using New Pass Manager
 ```
 $ ./build/bin/clang++ foo.cpp -O3 -fexperimental-new-pass-manager -mllvm --run-batch-prediction
-
+```
 
 ## Description of Addition
-1. I have added/modified following files:
+* I have added/modified following files:
     * `llvm/IR/PassManager.h`
      
        In PassManager, the predictor is called before the pass execcution (only before function passes).  
