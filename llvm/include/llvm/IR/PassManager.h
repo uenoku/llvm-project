@@ -517,12 +517,12 @@ public:
     MLPassResultPredictor<IRUnitT, AnalysisManagerT> PRP;
 
     unsigned Size = Passes.size();
-    auto ResultOpt = PRP.predictPassResults(Size, IR, AM);
+    auto ResultOpt = PRP.initializePassResultsPrediction(Size, IR, AM);
     bool ResultOptHasValue = ResultOpt.hasValue();
     std::vector<bool> Results;
 
     for (unsigned Idx = 0; Idx != Size; ++Idx) {
-      PRP.updatePassResults(Size, IR, AM, ResultOpt, Idx, Results);
+      PRP.updatePassResultsPrediction(Size, IR, AM, ResultOpt, Idx, Results);
       auto *P = Passes[Idx].get();
 
       // Check the PassInstrumentation's BeforePass callbacks before running the

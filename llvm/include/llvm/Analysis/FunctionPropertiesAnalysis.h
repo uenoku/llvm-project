@@ -113,7 +113,6 @@ public:
   int64_t MaxLoopDepth = 0;
   int64_t TopLevelLoopCount = 0;
   int64_t BasicBlockCount = 0;
-
 };
 
 // Analysis pass

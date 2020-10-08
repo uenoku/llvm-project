@@ -100,14 +100,7 @@ FunctionPropertiesInfo::getFunctionPropertiesInfo(const Function &F) {
 
       FPI.OpCodeCount[I.getOpcode()]++;
     }
-
-    // Loop Depth of the Basic Block
-    int64_t LoopDepth;
-    // LoopDepth = LI.getLoopDepth(&BB);
-    // if (FPI.MaxLoopDepth < LoopDepth)
-    //  FPI.MaxLoopDepth = LoopDepth;
   }
-  // FPI.TopLevelLoopCount += llvm::size(LI);
   return FPI;
 }
 
@@ -175,12 +168,7 @@ FunctionPropertiesSmall::getFunctionPropertiesSmall(const Function &F,
 
 std::vector<int64_t> FunctionPropertiesInfo::toVec() const {
   std::vector<int64_t> obj;
-  auto Debug = [](std::string s) { LLVM_DEBUG(dbgs() << s << ", ";); };
-#define REGISTER(VAR, NAME)                                                    \
-  {                                                                            \
-    Debug(#NAME);                                                              \
-    VAR.push_back(NAME);                                                       \
-  }
+#define REGISTER(VAR, NAME) VAR.push_back(NAME);
   REGISTER(obj, BasicBlockCount);
   REGISTER(obj, BlocksReachedFromConditionalInstruction);
   REGISTER(obj, Uses);
