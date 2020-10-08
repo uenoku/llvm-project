@@ -2,7 +2,10 @@
 This directory and its sub-directories contain source code for LLVM, a toolkit for the construction of highly optimized compilers, optimizers, and run-time environments.
 
 This branch contains the prototype of pass result prediction framework during GSoC 2020 "Advanced Heuristics for Ordering Compiler Optimization Passes". 
-Please refer [the project report](https://docs.google.com/document/d/1pbUPRSjYL5QHLEkwNTjnvdYvgiKaYO_LpyNaTKhTWEA/edit#heading=h.uj16i1ekvivz) for the motivation and detail of the work. 
+Please refer [the project report](https://docs.google.com/document/d/1pbUPRSjYL5QHLEkwNTjnvdYvgiKaYO_LpyNaTKhTWEA/edit#heading=h.uj16i1ekvivz) for the motivation and detail of the work. From this project report, we have improved the algorithm and here is the current result.
+
+![result](https://github.com/uenoku/llvm-project/blob/gsoc-2020-submission-pass-prediction/Result.png)
+
 
 ## usage
 ### Build
