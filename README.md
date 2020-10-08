@@ -17,15 +17,6 @@ Make sure that you are using New Pass Manager
 ```
 $ ./build/bin/clang++ foo.cpp -O3 -fexperimental-new-pass-manager -mllvm --run-batch-prediction
 
-```
-
-### Dumping Data by using lnt
-It's not recommend to run
-```
-$ lnt runtest test-suite  --sandbox ~/sandbox/ --cc $LLVM_HOME/bulid/bin/clang --cxx $LLVM_HOME/bulid/bin/clang -j16 --test-suite ~/llvm-test-suite/ --cppflags="-fexperimental-new-pass-manager -O3 -mllvm --dump-all-result
-$ python3 $LLVM_HOME/script/accmulate_data.py ~/sandbox/test-xxx
-```
-This creates data.csv to the current directory. 
 
 ## Description of Addition
 1. I have added/modified following files:
@@ -45,7 +36,4 @@ This creates data.csv to the current directory.
     * `llvm/Analysis/MLPassResultPredictor.{h, cpp}`
     
        This file defines Pass Result Predictor framework interfaces. `MLPassResultPredcitor<IRUnit,AnalysisManger>` has `predictPassResult` method, which takes pass name (i.e. SROA, GVN...), IR (i.e. Function, Module...) as inputs and returns the estimated result of the pass. In that file, we can define prediction algorithms seprately. Currently, our predictor can predict 11 function passes. If the predictor takes other passes, the predictor simply predict that there is a change.  
-    * `llvm/Analysis/PassReulstAnalysis.{h, cpp}`
-    
-       This defineds Analysis pass whose result is a boolean vector to store predictions from the model. Model definition is `llvm/Analysis/models/all_model/`.
-    
+   
