@@ -6,6 +6,7 @@ Please refer [the project report](https://docs.google.com/document/d/1pbUPRSjYL5
 
 ![result](https://github.com/uenoku/llvm-project/blob/gsoc-2020-submission-pass-prediction/Result.png)
 
+We gave a lightning talk at LLVM devmtg 2020([slide](https://docs.google.com/presentation/d/1i7l5AYXH5u9pTmYGVFTvZD5fC5MOuyV7Ak_1CnGKGlk/edit?usp=sharing)).
 
 ## usage
 ### Build
