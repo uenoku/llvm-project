@@ -25,7 +25,8 @@ class Function;
 
 class FunctionPropertiesInfo {
 public:
-  // FunctionProperties without LoopInfo. For LoopMaxDepth and TopLevelLoopCount, they are set to 0.
+  // FunctionProperties without LoopInfo. For LoopMaxDepth and
+  // TopLevelLoopCount, they are set to 0.
   static FunctionPropertiesInfo getFunctionPropertiesInfo(const Function &F);
   static FunctionPropertiesInfo getFunctionPropertiesInfo(const Function &F,
                                                           const LoopInfo &LI);
