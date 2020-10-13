@@ -25,6 +25,7 @@ class Function;
 
 class FunctionPropertiesInfo {
 public:
+  // FunctionProperties without LoopInfo. For LoopMaxDepth and TopLevelLoopCount, they are set to 0.
   static FunctionPropertiesInfo getFunctionPropertiesInfo(const Function &F);
   static FunctionPropertiesInfo getFunctionPropertiesInfo(const Function &F,
                                                           const LoopInfo &LI);
@@ -73,7 +74,7 @@ public:
   int64_t BasicBlockWithTwoPredecessors = 0;
   int64_t BasicBlockWithMoreThanTwoPredecessors = 0;
 
-  // Number of basic blocks with more than 500 instructions
+  // Number of basic blocks with more than 500 instructions.
   int64_t BigBasicBlock = 0;
 
   // Number of basic blocks with 15 ~ 500 instructions.

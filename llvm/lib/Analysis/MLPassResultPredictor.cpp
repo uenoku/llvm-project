@@ -125,6 +125,7 @@ void MLPassResultPredictor<Function, FunctionAnalysisManager>::
           FAM.getResult<FunctionPropertiesAnalysis>(F);
 
       auto CodeFeature = FPI.toVec();
+      
       auto OS = pidLogger("batch");
 
       if (Index != 6) {
