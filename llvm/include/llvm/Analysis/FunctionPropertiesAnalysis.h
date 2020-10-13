@@ -17,6 +17,7 @@
 #include "llvm/Analysis/LoopInfo.h"
 #include "llvm/IR/PassManager.h"
 #include "llvm/Support/JSON.h"
+#include "llvm/IR/Instruction.h"
 #include <map>
 
 namespace llvm {
@@ -31,7 +32,7 @@ public:
   void print(raw_ostream &OS) const;
   std::vector<int64_t> toVec() const;
 
-  /// Number of basic blocks
+  /// Number of basic blocks.
   int64_t BasicBlockCount = 0;
 
   /// Number of blocks reached from a conditional instruction, or that are
@@ -50,16 +51,16 @@ public:
   /// defined in this module.
   int64_t DirectCallsToDefinedFunctions = 0;
 
-  /// Number of all instuctions
+  /// Number of all instuctions.
   int64_t InstructionCount = 0;
 
-  /// Maximum Loop Depth in the Function
+  /// Maximum Loop Depth in the Function.
   int64_t MaxLoopDepth = 0;
 
-  /// Number of Top Level Loops in the Function
+  /// Number of Top Level Loops in the Function.
   int64_t TopLevelLoopCount = 0;
 
-  /// Number of Cast-like Instruction Count in the Function
+  /// Number of Cast-like Instruction Count in the Function.
   int64_t CastInstCount = 0;
 
   /// Number of Basic Blocks with specific successors.
@@ -91,7 +92,7 @@ public:
   int64_t IntegerConstantOccurrences = 0;
   int64_t FloatingConstantOccurrences = 0;
 
-  std::array<int64_t, 70> OpCodeCount = {0};
+  std::array<int64_t, Instruction::OtherOpsEnd> OpCodeCount = {0};
 };
 
 class FunctionPropertiesSmall {
