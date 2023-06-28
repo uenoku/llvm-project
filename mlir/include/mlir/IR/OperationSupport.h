@@ -1198,11 +1198,14 @@ struct OperationEquivalence {
   /// unique hash_code for a given Value.
   static llvm::hash_code computeHash(
       Operation *op,
+      function_ref<llvm::hash_code(Operation *)> hashOpInfo = simpleHashOpInfo,
       function_ref<llvm::hash_code(Value)> hashOperands =
           [](Value v) { return hash_value(v); },
       function_ref<llvm::hash_code(Value)> hashResults =
           [](Value v) { return hash_value(v); },
       Flags flags = Flags::None);
+
+  static llvm::hash_code simpleHashOpInfo(Operation *);
 
   /// Helper that can be used with `computeHash` above to ignore operation
   /// operands/result mapping.
@@ -1225,22 +1228,31 @@ struct OperationEquivalence {
   /// values that were determined to be equivalent as per `markEquivalent` to be
   /// reflected in `checkEquivalent`, unless `exactValueMatch` or a different
   /// equivalence relationship is desired.
-  static bool
-  isEquivalentTo(Operation *lhs, Operation *rhs,
-                 function_ref<LogicalResult(Value, Value)> checkEquivalent,
-                 function_ref<void(Value, Value)> markEquivalent = nullptr,
-                 Flags flags = Flags::None);
+  static bool isEquivalentTo(
+      Operation *lhs, Operation *rhs,
+      function_ref<LogicalResult(Operation *, Operation *)> checkOpProperties,
+      function_ref<LogicalResult(Value, Value)> checkEquivalent,
+      function_ref<void(Value, Value)> markEquivalent = nullptr,
+      Flags flags = Flags::None);
 
   /// Compare two operations and return if they are equivalent.
   static bool isEquivalentTo(Operation *lhs, Operation *rhs, Flags flags);
+  static bool isEquivalentTo(
+      Operation *lhs, Operation *rhs,
+      function_ref<LogicalResult(Operation *, Operation *)> checkOpProperties,
+      Flags flags);
 
   /// Compare two regions (including their subregions) and return if they are
   /// equivalent. See also `isEquivalentTo` for details.
   static bool isRegionEquivalentTo(
       Region *lhs, Region *rhs,
+      function_ref<LogicalResult(Operation *, Operation *)> checkOpProperties,
       function_ref<LogicalResult(Value, Value)> checkEquivalent,
       function_ref<void(Value, Value)> markEquivalent,
       OperationEquivalence::Flags flags);
+
+  /// Helper that can be used with `isEquivalentTo` above.
+  static LogicalResult simpleCheckOpProperties(Operation *lhs, Operation *rhs);
 
   /// Compare two regions and return if they are equivalent.
   static bool isRegionEquivalentTo(Region *lhs, Region *rhs,

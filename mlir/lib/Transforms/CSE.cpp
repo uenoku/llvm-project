@@ -35,6 +35,7 @@ struct SimpleOperationInfo : public llvm::DenseMapInfo<Operation *> {
   static unsigned getHashValue(const Operation *opC) {
     return OperationEquivalence::computeHash(
         const_cast<Operation *>(opC),
+        /*hashOpInfo=*/OperationEquivalence::simpleHashOpInfo,
         /*hashOperands=*/OperationEquivalence::directHashValue,
         /*hashResults=*/OperationEquivalence::ignoreHashValue,
         OperationEquivalence::IgnoreLocations);
@@ -55,14 +56,16 @@ struct SimpleOperationInfo : public llvm::DenseMapInfo<Operation *> {
 } // namespace
 
 namespace {
-/// Simple common sub-expression elimination.
-struct CSE : public impl::CSEBase<CSE> {
+template <typename OperationInfo>
+struct CSEImpl {
+  CSEImpl(mlir::DominanceInfo *domInfo, Operation *rootOp)
+      : domInfo(domInfo), rootOp(rootOp) {}
   /// Shared implementation of operation elimination and scoped map definitions.
   using AllocatorTy = llvm::RecyclingAllocator<
       llvm::BumpPtrAllocator,
       llvm::ScopedHashTableVal<Operation *, Operation *>>;
   using ScopedMapTy = llvm::ScopedHashTable<Operation *, Operation *,
-                                            SimpleOperationInfo, AllocatorTy>;
+                                            OperationInfo, AllocatorTy>;
 
   /// Cache holding MemoryEffects information between two operations. The first
   /// operation is stored has the key. The second operation is stored inside a
@@ -78,7 +81,7 @@ struct CSE : public impl::CSEBase<CSE> {
         : scope(knownValues), node(node), childIterator(node->begin()) {}
 
     /// Scope for the known values.
-    ScopedMapTy::ScopeTy scope;
+    typename ScopedMapTy::ScopeTy scope;
 
     DominanceInfoNode *node;
     DominanceInfoNode::const_iterator childIterator;
@@ -93,8 +96,9 @@ struct CSE : public impl::CSEBase<CSE> {
                                   bool hasSSADominance);
   void simplifyBlock(ScopedMapTy &knownValues, Block *bb, bool hasSSADominance);
   void simplifyRegion(ScopedMapTy &knownValues, Region &region);
-
-  void runOnOperation() override;
+  bool runCSE();
+  unsigned getNumCSE() const { return numCSE; }
+  unsigned getNumDCE() const { return numDCE; }
 
 private:
   void replaceUsesAndDelete(ScopedMapTy &knownValues, Operation *op,
@@ -107,12 +111,17 @@ private:
   /// Operations marked as dead and to be erased.
   std::vector<Operation *> opsToErase;
   DominanceInfo *domInfo = nullptr;
+  Operation *rootOp = nullptr;
   MemEffectsCache memEffectsCache;
+  unsigned numCSE = 0, numDCE = 0;
 };
 } // namespace
 
-void CSE::replaceUsesAndDelete(ScopedMapTy &knownValues, Operation *op,
-                               Operation *existing, bool hasSSADominance) {
+template <typename OperationInfo>
+void CSEImpl<OperationInfo>::replaceUsesAndDelete(ScopedMapTy &knownValues,
+                                                  Operation *op,
+                                                  Operation *existing,
+                                                  bool hasSSADominance) {
   // If we find one then replace all uses of the current operation with the
   // existing one and mark it for deletion. We can only replace an operand in
   // an operation if it has not been visited yet.
@@ -142,7 +151,9 @@ void CSE::replaceUsesAndDelete(ScopedMapTy &knownValues, Operation *op,
   ++numCSE;
 }
 
-bool CSE::hasOtherSideEffectingOpInBetween(Operation *fromOp, Operation *toOp) {
+template <typename OperationInfo>
+bool CSEImpl<OperationInfo>::hasOtherSideEffectingOpInBetween(Operation *fromOp,
+                                                              Operation *toOp) {
   assert(fromOp->getBlock() == toOp->getBlock());
   assert(
       isa<MemoryEffectOpInterface>(fromOp) &&
@@ -183,8 +194,10 @@ bool CSE::hasOtherSideEffectingOpInBetween(Operation *fromOp, Operation *toOp) {
 }
 
 /// Attempt to eliminate a redundant operation.
-LogicalResult CSE::simplifyOperation(ScopedMapTy &knownValues, Operation *op,
-                                     bool hasSSADominance) {
+template <typename OperationInfo>
+LogicalResult
+CSEImpl<OperationInfo>::simplifyOperation(ScopedMapTy &knownValues,
+                                          Operation *op, bool hasSSADominance) {
   // Don't simplify terminator operations.
   if (op->hasTrait<OpTrait::IsTerminator>())
     return failure();
@@ -240,8 +253,9 @@ LogicalResult CSE::simplifyOperation(ScopedMapTy &knownValues, Operation *op,
   return failure();
 }
 
-void CSE::simplifyBlock(ScopedMapTy &knownValues, Block *bb,
-                        bool hasSSADominance) {
+template <typename OperationInfo>
+void CSEImpl<OperationInfo>::simplifyBlock(ScopedMapTy &knownValues, Block *bb,
+                                           bool hasSSADominance) {
   for (auto &op : *bb) {
     // Most operations don't have regions, so fast path that case.
     if (op.getNumRegions() != 0) {
@@ -267,7 +281,9 @@ void CSE::simplifyBlock(ScopedMapTy &knownValues, Block *bb,
   memEffectsCache.clear();
 }
 
-void CSE::simplifyRegion(ScopedMapTy &knownValues, Region &region) {
+template <typename OperationInfo>
+void CSEImpl<OperationInfo>::simplifyRegion(ScopedMapTy &knownValues,
+                                            Region &region) {
   // If the region is empty there is nothing to do.
   if (region.empty())
     return;
@@ -276,7 +292,7 @@ void CSE::simplifyRegion(ScopedMapTy &knownValues, Region &region) {
 
   // If the region only contains one block, then simplify it directly.
   if (region.hasOneBlock()) {
-    ScopedMapTy::ScopeTy scope(knownValues);
+    typename ScopedMapTy::ScopeTy scope(knownValues);
     simplifyBlock(knownValues, &region.front(), hasSSADominance);
     return;
   }
@@ -321,30 +337,43 @@ void CSE::simplifyRegion(ScopedMapTy &knownValues, Region &region) {
     }
   }
 }
-
-void CSE::runOnOperation() {
+template <typename OperationInfo>
+bool CSEImpl<OperationInfo>::runCSE() {
   /// A scoped hash table of defining operations within a region.
   ScopedMapTy knownValues;
-
-  domInfo = &getAnalysis<DominanceInfo>();
-  Operation *rootOp = getOperation();
-
   for (auto &region : rootOp->getRegions())
     simplifyRegion(knownValues, region);
 
   // If no operations were erased, then we mark all analyses as preserved.
   if (opsToErase.empty())
-    return markAllAnalysesPreserved();
+    return false;
 
   /// Erase any operations that were marked as dead during simplification.
   for (auto *op : opsToErase)
     op->erase();
   opsToErase.clear();
+  return true;
+}
+
+namespace {
+struct CSE : public impl::CSEBase<CSE> {
+  void runOnOperation() override;
+};
+} // namespace
+
+void CSE::runOnOperation() {
+  auto &domInfo = getAnalysis<DominanceInfo>();
+  CSEImpl<SimpleOperationInfo> cseRunner(&domInfo, getOperation());
+
+  // Run cse, and preserve analyses if there was no change.
+  if (!cseRunner.runCSE())
+    return markAllAnalysesPreserved();
+  numCSE += cseRunner.getNumCSE();
+  numDCE += cseRunner.getNumDCE();
 
   // We currently don't remove region operations, so mark dominance as
   // preserved.
   markAnalysesPreserved<DominanceInfo, PostDominanceInfo>();
-  domInfo = nullptr;
 }
 
 std::unique_ptr<Pass> mlir::createCSEPass() { return std::make_unique<CSE>(); }

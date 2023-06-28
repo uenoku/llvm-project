@@ -646,15 +646,14 @@ Value ValueRange::dereference_iterator(const OwnerT &owner, ptrdiff_t index) {
 //===----------------------------------------------------------------------===//
 
 llvm::hash_code OperationEquivalence::computeHash(
-    Operation *op, function_ref<llvm::hash_code(Value)> hashOperands,
+    Operation *op, function_ref<llvm::hash_code(Operation *)> hashOpInfo,
+    function_ref<llvm::hash_code(Value)> hashOperands,
     function_ref<llvm::hash_code(Value)> hashResults, Flags flags) {
-  // Hash operations based upon their:
+  // Hash operations using `hashOpInfo` based upon their:
   //   - Operation Name
   //   - Attributes
   //   - Result Types
-  llvm::hash_code hash =
-      llvm::hash_combine(op->getName(), op->getDiscardableAttrDictionary(),
-                         op->getResultTypes(), op->hashProperties());
+  llvm::hash_code hash = hashOpInfo(op);
 
   //   - Operands
   ValueRange operands = op->getOperands();
@@ -677,6 +676,7 @@ llvm::hash_code OperationEquivalence::computeHash(
 
 /*static*/ bool OperationEquivalence::isRegionEquivalentTo(
     Region *lhs, Region *rhs,
+    function_ref<LogicalResult(Operation *, Operation *)> checkOpProperties,
     function_ref<LogicalResult(Value, Value)> checkEquivalent,
     function_ref<void(Value, Value)> markEquivalent,
     OperationEquivalence::Flags flags) {
@@ -707,8 +707,9 @@ llvm::hash_code OperationEquivalence::computeHash(
 
     auto opsEquivalent = [&](Operation &lOp, Operation &rOp) {
       // Check for op equality (recursively).
-      if (!OperationEquivalence::isEquivalentTo(&lOp, &rOp, checkEquivalent,
-                                                markEquivalent, flags))
+      if (!OperationEquivalence::isEquivalentTo(&lOp, &rOp, checkOpProperties,
+                                                checkEquivalent, markEquivalent,
+                                                flags))
         return false;
       // Check successor mapping.
       for (auto successorsPair :
@@ -744,12 +745,32 @@ struct ValueEquivalenceCache {
   }
 };
 
+/*static*/
+llvm::hash_code OperationEquivalence::simpleHashOpInfo(Operation *op) {
+  return llvm::hash_combine(op->getName(), op->getDiscardableAttrDictionary(),
+                            op->getResultTypes(), op->hashProperties());
+}
+
+/*static*/ LogicalResult
+OperationEquivalence::simpleCheckOpProperties(Operation *lhs, Operation *rhs) {
+  // Compare the operation properties.
+  bool isNonequivalent = lhs->getName() != rhs->getName() ||
+                         lhs->getDiscardableAttrDictionary() !=
+                             rhs->getDiscardableAttrDictionary() ||
+                         lhs->getNumRegions() != rhs->getNumRegions() ||
+                         lhs->getNumSuccessors() != rhs->getNumSuccessors() ||
+                         lhs->getNumOperands() != rhs->getNumOperands() ||
+                         lhs->getNumResults() != rhs->getNumResults() ||
+                         lhs->hashProperties() != rhs->hashProperties();
+  return failure(isNonequivalent);
+}
+
 /*static*/ bool
 OperationEquivalence::isRegionEquivalentTo(Region *lhs, Region *rhs,
                                            OperationEquivalence::Flags flags) {
   ValueEquivalenceCache cache;
   return isRegionEquivalentTo(
-      lhs, rhs,
+      lhs, rhs, OperationEquivalence::simpleCheckOpProperties,
       [&](Value lhsValue, Value rhsValue) -> LogicalResult {
         return cache.checkEquivalent(lhsValue, rhsValue);
       },
@@ -761,20 +782,14 @@ OperationEquivalence::isRegionEquivalentTo(Region *lhs, Region *rhs,
 
 /*static*/ bool OperationEquivalence::isEquivalentTo(
     Operation *lhs, Operation *rhs,
+    function_ref<LogicalResult(Operation *, Operation *)> checkOpProperties,
     function_ref<LogicalResult(Value, Value)> checkEquivalent,
     function_ref<void(Value, Value)> markEquivalent, Flags flags) {
   if (lhs == rhs)
     return true;
 
   // 1. Compare the operation properties.
-  if (lhs->getName() != rhs->getName() ||
-      lhs->getDiscardableAttrDictionary() !=
-          rhs->getDiscardableAttrDictionary() ||
-      lhs->getNumRegions() != rhs->getNumRegions() ||
-      lhs->getNumSuccessors() != rhs->getNumSuccessors() ||
-      lhs->getNumOperands() != rhs->getNumOperands() ||
-      lhs->getNumResults() != rhs->getNumResults() ||
-      lhs->hashProperties() != rhs->hashProperties())
+  if (failed(checkOpProperties(lhs, rhs)))
     return false;
   if (!(flags & IgnoreLocations) && lhs->getLoc() != rhs->getLoc())
     return false;
@@ -838,19 +853,20 @@ OperationEquivalence::isRegionEquivalentTo(Region *lhs, Region *rhs,
   // 4. Compare regions.
   for (auto regionPair : llvm::zip(lhs->getRegions(), rhs->getRegions()))
     if (!isRegionEquivalentTo(&std::get<0>(regionPair),
-                              &std::get<1>(regionPair), checkEquivalent,
-                              markEquivalent, flags))
+                              &std::get<1>(regionPair), checkOpProperties,
+                              checkEquivalent, markEquivalent, flags))
       return false;
 
   return true;
 }
 
-/*static*/ bool OperationEquivalence::isEquivalentTo(Operation *lhs,
-                                                     Operation *rhs,
-                                                     Flags flags) {
+/*static*/ bool OperationEquivalence::isEquivalentTo(
+    Operation *lhs, Operation *rhs,
+    function_ref<LogicalResult(Operation *, Operation *)> checkOpProperties,
+    Flags flags) {
   ValueEquivalenceCache cache;
   return OperationEquivalence::isEquivalentTo(
-      lhs, rhs,
+      lhs, rhs, checkOpProperties,
       [&](Value lhsValue, Value rhsValue) -> LogicalResult {
         return cache.checkEquivalent(lhsValue, rhsValue);
       },
@@ -858,6 +874,13 @@ OperationEquivalence::isRegionEquivalentTo(Region *lhs, Region *rhs,
         cache.markEquivalent(lhsResult, rhsResult);
       },
       flags);
+}
+
+/*static*/ bool OperationEquivalence::isEquivalentTo(Operation *lhs,
+                                                     Operation *rhs,
+                                                     Flags flags) {
+  return OperationEquivalence::isEquivalentTo(
+      lhs, rhs, OperationEquivalence::simpleCheckOpProperties, flags);
 }
 
 //===----------------------------------------------------------------------===//

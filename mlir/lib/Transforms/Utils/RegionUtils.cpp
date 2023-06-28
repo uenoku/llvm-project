@@ -527,7 +527,8 @@ BlockEquivalenceData::BlockEquivalenceData(Block *block)
       orderIt += numResults;
     }
     auto opHash = OperationEquivalence::computeHash(
-        &op, OperationEquivalence::ignoreHashValue,
+        &op, OperationEquivalence::simpleHashOpInfo,
+        OperationEquivalence::ignoreHashValue,
         OperationEquivalence::ignoreHashValue,
         OperationEquivalence::IgnoreLocations);
     hash = llvm::hash_combine(hash, opHash);
@@ -592,7 +593,8 @@ LogicalResult BlockMergeCluster::addToCluster(BlockEquivalenceData &blockData) {
   for (int opI = 0; lhsIt != lhsE && rhsIt != rhsE; ++lhsIt, ++rhsIt, ++opI) {
     // Check that the operations are equivalent.
     if (!OperationEquivalence::isEquivalentTo(
-            &*lhsIt, &*rhsIt, OperationEquivalence::ignoreValueEquivalence,
+            &*lhsIt, &*rhsIt, OperationEquivalence::simpleCheckOpProperties,
+            OperationEquivalence::ignoreValueEquivalence,
             /*markEquivalent=*/nullptr,
             OperationEquivalence::Flags::IgnoreLocations))
       return failure();

@@ -40,7 +40,9 @@ struct DuplicateFuncOpEquivalenceInfo
     func.getBody().walk([&](Operation *op) {
       hash = llvm::hash_combine(
           hash, OperationEquivalence::computeHash(
-                    op, /*hashOperands=*/OperationEquivalence::ignoreHashValue,
+                    op,
+                    /*hashOpInfo=*/OperationEquivalence::simpleHashOpInfo,
+                    /*hashOperands=*/OperationEquivalence::ignoreHashValue,
                     /*hashResults=*/OperationEquivalence::ignoreHashValue,
                     OperationEquivalence::IgnoreLocations));
     });
