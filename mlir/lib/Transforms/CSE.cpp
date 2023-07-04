@@ -16,6 +16,7 @@
 #include "mlir/IR/Dominance.h"
 #include "mlir/Interfaces/SideEffectInterfaces.h"
 #include "mlir/Pass/Pass.h"
+#include "mlir/Transforms/CSEUtils.h"
 #include "llvm/ADT/DenseMapInfo.h"
 #include "llvm/ADT/Hashing.h"
 #include "llvm/ADT/ScopedHashTable.h"
@@ -113,6 +114,15 @@ private:
 
 void CSE::replaceUsesAndDelete(ScopedMapTy &knownValues, Operation *op,
                                Operation *existing, bool hasSSADominance) {
+  // Merge attributes if a dialect interface is given.
+  if (auto *interface =
+          dyn_cast_or_null<DialectCSEInterface>(op->getDialect())) {
+    auto attr = interface->combineDiscardableAttributes(
+        op->getDiscardableAttrDictionary(),
+        existing->getDiscardableAttrDictionary());
+    if (existing->getDiscardableAttrDictionary() != attr)
+      existing->setDiscardableAttrs(attr);
+  }
   // If we find one then replace all uses of the current operation with the
   // existing one and mark it for deletion. We can only replace an operand in
   // an operation if it has not been visited yet.

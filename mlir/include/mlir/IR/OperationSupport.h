@@ -18,6 +18,7 @@
 #include "mlir/IR/BlockSupport.h"
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/Diagnostics.h"
+#include "mlir/IR/DialectInterface.h"
 #include "mlir/IR/DialectRegistry.h"
 #include "mlir/IR/Location.h"
 #include "mlir/IR/TypeRange.h"
@@ -1260,6 +1261,34 @@ struct OperationEquivalence {
 
 /// Enable Bitmask enums for OperationEquivalence::Flags.
 LLVM_ENABLE_BITMASK_ENUMS_IN_NAMESPACE();
+
+//===----------------------------------------------------------------------===//
+// OperationEquivalenceInterface
+//===----------------------------------------------------------------------===//
+
+/// This is the interface that allows dialects to control the operation
+/// equivalence.
+class DialectOperationEquivalenceInterface
+    : public DialectInterface::Base<DialectOperationEquivalenceInterface> {
+public:
+  DialectOperationEquivalenceInterface(Dialect *dialect) : Base(dialect) {}
+
+  //===--------------------------------------------------------------------===//
+  // Analysis Hooks
+  //===--------------------------------------------------------------------===//
+
+  /// Returns true if the given 'attr' contains attributes that can be
+  /// ignored in the equivalence comparision.
+  virtual bool containsNonEssentialAttribute(DictionaryAttr attr) const {
+    return false;
+  }
+
+  /// Returns true if the given named attribute 'namedAttr' can be ignored
+  /// in the equivalence comparision.
+  virtual bool isNonEssentialAttribute(NamedAttribute namedAttr) const {
+    return false;
+  }
+};
 
 //===----------------------------------------------------------------------===//
 // OperationFingerPrint

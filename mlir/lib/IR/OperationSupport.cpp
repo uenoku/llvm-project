@@ -15,7 +15,9 @@
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/OpDefinition.h"
+#include "mlir/Transforms/CSEUtils.h"
 #include "llvm/ADT/BitVector.h"
+#include "llvm/ADT/STLExtras.h"
 #include "llvm/Support/SHA1.h"
 #include <numeric>
 #include <optional>
@@ -650,11 +652,24 @@ llvm::hash_code OperationEquivalence::computeHash(
     function_ref<llvm::hash_code(Value)> hashResults, Flags flags) {
   // Hash operations based upon their:
   //   - Operation Name
-  //   - Attributes
   //   - Result Types
-  llvm::hash_code hash =
-      llvm::hash_combine(op->getName(), op->getDiscardableAttrDictionary(),
-                         op->getResultTypes(), op->hashProperties());
+  llvm::hash_code hash = llvm::hash_combine(op->getName(), op->getResultTypes(),
+                                            op->hashProperties());
+  //   - Attributes
+  auto attr = op->getDiscardableAttrDictionary();
+  // If the dialect implements `OperationEquivalenceInterface`, skip
+  // non-essential attributes.
+  if (auto *interface = dyn_cast_or_null<DialectOperationEquivalenceInterface>(
+          op->getDialect()))
+    if (interface->containsNonEssentialAttribute(attr)) {
+      SmallVector<NamedAttribute> attributes(
+          llvm::make_filter_range(attr, [interface](auto namedAttr) {
+            return !interface->isNonEssentialAttribute(namedAttr);
+          }));
+      attr = DictionaryAttr::get(op->getContext(), attributes);
+    }
+
+  hash = llvm::hash_combine(hash, attr);
 
   //   - Location if required
   if (!(flags & Flags::IgnoreLocations))
@@ -770,16 +785,41 @@ OperationEquivalence::isRegionEquivalentTo(Region *lhs, Region *rhs,
   if (lhs == rhs)
     return true;
 
-  // 1. Compare the operation properties.
+  // 1. Compare the operation properties except for discardable attributes.
   if (lhs->getName() != rhs->getName() ||
-      lhs->getDiscardableAttrDictionary() !=
-          rhs->getDiscardableAttrDictionary() ||
       lhs->getNumRegions() != rhs->getNumRegions() ||
       lhs->getNumSuccessors() != rhs->getNumSuccessors() ||
       lhs->getNumOperands() != rhs->getNumOperands() ||
       lhs->getNumResults() != rhs->getNumResults() ||
       lhs->hashProperties() != rhs->hashProperties())
     return false;
+
+  // Compare discardable attributes.
+  if (lhs->getDiscardableAttrDictionary() !=
+      rhs->getDiscardableAttrDictionary()) {
+    // Look up a dialect interface if attributes are different.
+    auto *interface =
+        dyn_cast<DialectOperationEquivalenceInterface>(lhs->getDialect());
+    // If there is no dialect interface, give up.
+    if (!interface)
+      return false;
+    auto lDict = lhs->getDiscardableAttrDictionary();
+    auto rDict = rhs->getDiscardableAttrDictionary();
+    if (!interface->containsNonEssentialAttribute(lDict) &&
+        !interface->containsNonEssentialAttribute(rDict))
+      return false;
+
+    // A helper to skip non-essential attributes.
+    auto skipNonEssentialAttr = [interface](NamedAttribute namedAttr) {
+      return !interface->isNonEssentialAttribute(namedAttr);
+    };
+
+    // Check if they are equivalent when non essential attributes are stripped.
+    if (!llvm::equal(llvm::make_filter_range(lDict, skipNonEssentialAttr),
+                     llvm::make_filter_range(rDict, skipNonEssentialAttr)))
+      return false;
+  }
+
   if (!(flags & IgnoreLocations) && lhs->getLoc() != rhs->getLoc())
     return false;
 

@@ -29,6 +29,7 @@
 #include "mlir/Interfaces/InferIntRangeInterface.h"
 #include "mlir/Reducer/ReductionPatternInterface.h"
 #include "mlir/Support/LogicalResult.h"
+#include "mlir/Transforms/CSEUtils.h"
 #include "mlir/Transforms/FoldUtils.h"
 #include "mlir/Transforms/InliningUtils.h"
 #include "llvm/ADT/SmallString.h"
@@ -457,6 +458,64 @@ struct TestInlinerInterface : public DialectInlinerInterface {
   }
 };
 
+/// This class defines the interface for customizing OperationEquivalence.
+struct TestOperationEquivalenceInterface
+    : public DialectOperationEquivalenceInterface {
+  using DialectOperationEquivalenceInterface::
+      DialectOperationEquivalenceInterface;
+
+  //===--------------------------------------------------------------------===//
+  // Analysis Hooks
+  //===--------------------------------------------------------------------===//
+
+  /// Returns true if the given 'attr' contains attributes that can be
+  /// ignored in the equivalence comparison.
+  bool containsNonEssentialAttribute(DictionaryAttr attr) const override {
+    return attr.contains("test.non_essential");
+  }
+
+  /// Returns true if the given named attribute 'namedAttr' can be ignored
+  /// in the equivalence comparison.
+  bool isNonEssentialAttribute(NamedAttribute namedAttr) const override {
+    return namedAttr.getName() == "test.non_essential";
+  }
+};
+
+/// This class defines the interface for customizing CSE.
+struct TestCSEInterface : public DialectCSEInterface {
+  using DialectCSEInterface::DialectCSEInterface;
+
+  //===--------------------------------------------------------------------===//
+  // Transformation Hooks
+  //===--------------------------------------------------------------------===//
+
+  /// Returns a dictionary attribute that are combined derived from
+  /// `opAttr` (attributes attached to an op that is going to be eliminated) and
+  /// `existingOpAttr`.
+  virtual DictionaryAttr
+  combineDiscardableAttributes(DictionaryAttr opAttr,
+                               DictionaryAttr existingOpAttr) const {
+    if (auto src = opAttr.getAs<StringAttr>("test.non_essential")) {
+      StringAttr newValue;
+      // If both has "test.non_essential" attr, set the smaller value.
+      if (auto dest = existingOpAttr.getAs<StringAttr>("test.non_essential")) {
+        if (src.getValue() < dest.getValue())
+          newValue = src;
+      } else {
+        newValue = src;
+      }
+
+      if (newValue) {
+        NamedAttrList attributes(existingOpAttr);
+        attributes.set("test.non_essential", newValue);
+        existingOpAttr = attributes.getDictionary(getContext());
+      }
+    }
+
+    return existingOpAttr;
+  }
+};
+
 struct TestReductionPatternInterface : public DialectReductionPatternInterface {
 public:
   TestReductionPatternInterface(Dialect *dialect)
@@ -564,7 +623,8 @@ void TestDialect::initialize() {
   addInterface<TestOpAsmInterface>(blobInterface);
 
   addInterfaces<TestDialectFoldInterface, TestInlinerInterface,
-                TestReductionPatternInterface, TestBytecodeDialectInterface>();
+                TestReductionPatternInterface, TestBytecodeDialectInterface,
+                TestOperationEquivalenceInterface, TestCSEInterface>();
   allowUnknownOperations();
 
   // Instantiate our fallback op interface that we'll use on specific
