@@ -166,6 +166,7 @@ class AttrOrTypeDef<string valueType, string name, list<Trait> defTraits,
 
   // Specify if the storage class is to be generated.
   bit genStorageClass = 1;
+  bit genStorageClassForwardDecl = 1;
 
   // Specify that the generated storage class has a constructor which is written
   // in C++.

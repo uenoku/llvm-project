@@ -171,6 +171,9 @@ public:
   /// Returns true if we should generate the storage class.
   bool genStorageClass() const;
 
+  /// Returns true if we should generate the storage class forward decl.
+  bool genStorageClassForwardDecl() const;
+
   /// Indicates whether or not to generate the storage class constructor.
   bool hasStorageCustomConstructor() const;
 

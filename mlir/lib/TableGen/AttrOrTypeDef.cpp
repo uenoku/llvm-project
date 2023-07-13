@@ -146,6 +146,10 @@ StringRef AttrOrTypeDef::getStorageClassName() const {
   return def->getValueAsString("storageClass");
 }
 
+bool AttrOrTypeDef::genStorageClassForwardDecl() const {
+  return def->getValueAsBit("genStorageClassForwardDecl");
+}
+
 StringRef AttrOrTypeDef::getStorageNamespace() const {
   return def->getValueAsString("storageNamespace");
 }
