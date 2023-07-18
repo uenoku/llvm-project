@@ -15,7 +15,9 @@
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/OpDefinition.h"
+#include "mlir/Transforms/CSEUtils.h"
 #include "llvm/ADT/BitVector.h"
+#include "llvm/ADT/STLExtras.h"
 #include "llvm/Support/SHA1.h"
 #include <numeric>
 #include <optional>
@@ -646,15 +648,14 @@ Value ValueRange::dereference_iterator(const OwnerT &owner, ptrdiff_t index) {
 //===----------------------------------------------------------------------===//
 
 llvm::hash_code OperationEquivalence::computeHash(
-    Operation *op, function_ref<llvm::hash_code(Value)> hashOperands,
+    Operation *op, function_ref<llvm::hash_code(Operation *)> hashOp,
+    function_ref<llvm::hash_code(Value)> hashOperands,
     function_ref<llvm::hash_code(Value)> hashResults, Flags flags) {
   // Hash operations based upon their:
   //   - Operation Name
-  //   - Attributes
   //   - Result Types
-  llvm::hash_code hash =
-      llvm::hash_combine(op->getName(), op->getDiscardableAttrDictionary(),
-                         op->getResultTypes(), op->hashProperties());
+  //   - Attributes
+  llvm::hash_code hash = hashOp(op);
 
   //   - Location if required
   if (!(flags & Flags::IgnoreLocations))
@@ -672,7 +673,9 @@ llvm::hash_code OperationEquivalence::computeHash(
 
 /*static*/ bool OperationEquivalence::isRegionEquivalentTo(
     Region *lhs, Region *rhs,
-    function_ref<LogicalResult(Value, Value)> checkEquivalent,
+    function_ref<LogicalResult(Operation *, Operation *)>
+        checkOpStructureEquivalent,
+    function_ref<LogicalResult(Value, Value)> checkValueEquivalent,
     function_ref<void(Value, Value)> markEquivalent,
     OperationEquivalence::Flags flags) {
   DenseMap<Block *, Block *> blocksMap;
@@ -702,8 +705,9 @@ llvm::hash_code OperationEquivalence::computeHash(
 
     auto opsEquivalent = [&](Operation &lOp, Operation &rOp) {
       // Check for op equality (recursively).
-      if (!OperationEquivalence::isEquivalentTo(&lOp, &rOp, checkEquivalent,
-                                                markEquivalent, flags))
+      if (!OperationEquivalence::isEquivalentTo(
+              &lOp, &rOp, checkOpStructureEquivalent, checkValueEquivalent,
+              markEquivalent, flags))
         return false;
       // Check successor mapping.
       for (auto successorsPair :
@@ -744,7 +748,7 @@ OperationEquivalence::isRegionEquivalentTo(Region *lhs, Region *rhs,
                                            OperationEquivalence::Flags flags) {
   ValueEquivalenceCache cache;
   return isRegionEquivalentTo(
-      lhs, rhs,
+      lhs, rhs, simpleOpEquivalence,
       [&](Value lhsValue, Value rhsValue) -> LogicalResult {
         return cache.checkEquivalent(lhsValue, rhsValue);
       },
@@ -754,23 +758,38 @@ OperationEquivalence::isRegionEquivalentTo(Region *lhs, Region *rhs,
       flags);
 }
 
+/*static*/ llvm::hash_code OperationEquivalence::simpleOpHash(Operation *op) {
+  return llvm::hash_combine(op->getName(), op->getResultTypes(),
+                            op->hashProperties(),
+                            op->getDiscardableAttrDictionary());
+}
+
+/*static*/ LogicalResult
+OperationEquivalence::simpleOpEquivalence(Operation *lhs, Operation *rhs) {
+  return LogicalResult::success(
+      lhs->getName() == rhs->getName() &&
+      lhs->getDiscardableAttrDictionary() ==
+          rhs->getDiscardableAttrDictionary() &&
+      lhs->getNumRegions() == rhs->getNumRegions() &&
+      lhs->getNumSuccessors() == rhs->getNumSuccessors() &&
+      lhs->getNumOperands() == rhs->getNumOperands() &&
+      lhs->getNumResults() == rhs->getNumResults() &&
+      lhs->hashProperties() == rhs->hashProperties());
+}
+
 /*static*/ bool OperationEquivalence::isEquivalentTo(
     Operation *lhs, Operation *rhs,
-    function_ref<LogicalResult(Value, Value)> checkEquivalent,
+    function_ref<LogicalResult(Operation *, Operation *)>
+        checkOpStructureEquivalent,
+    function_ref<LogicalResult(Value, Value)> checkValueEquivalent,
     function_ref<void(Value, Value)> markEquivalent, Flags flags) {
   if (lhs == rhs)
     return true;
 
-  // 1. Compare the operation properties.
-  if (lhs->getName() != rhs->getName() ||
-      lhs->getDiscardableAttrDictionary() !=
-          rhs->getDiscardableAttrDictionary() ||
-      lhs->getNumRegions() != rhs->getNumRegions() ||
-      lhs->getNumSuccessors() != rhs->getNumSuccessors() ||
-      lhs->getNumOperands() != rhs->getNumOperands() ||
-      lhs->getNumResults() != rhs->getNumResults() ||
-      lhs->hashProperties() != rhs->hashProperties())
+  // 1. Compare the operation.
+  if (failed(checkOpStructureEquivalent(lhs, rhs)))
     return false;
+
   if (!(flags & IgnoreLocations) && lhs->getLoc() != rhs->getLoc())
     return false;
 
@@ -782,7 +801,7 @@ OperationEquivalence::isRegionEquivalentTo(Region *lhs, Region *rhs,
       continue;
     if (curArg.getType() != otherArg.getType())
       return false;
-    if (failed(checkEquivalent(curArg, otherArg)))
+    if (failed(checkValueEquivalent(curArg, otherArg)))
       return false;
   }
 
@@ -799,7 +818,8 @@ OperationEquivalence::isRegionEquivalentTo(Region *lhs, Region *rhs,
   // 4. Compare regions.
   for (auto regionPair : llvm::zip(lhs->getRegions(), rhs->getRegions()))
     if (!isRegionEquivalentTo(&std::get<0>(regionPair),
-                              &std::get<1>(regionPair), checkEquivalent,
+                              &std::get<1>(regionPair),
+                              checkOpStructureEquivalent, checkValueEquivalent,
                               markEquivalent, flags))
       return false;
 
@@ -811,7 +831,24 @@ OperationEquivalence::isRegionEquivalentTo(Region *lhs, Region *rhs,
                                                      Flags flags) {
   ValueEquivalenceCache cache;
   return OperationEquivalence::isEquivalentTo(
-      lhs, rhs,
+      lhs, rhs, simpleOpEquivalence,
+      [&](Value lhsValue, Value rhsValue) -> LogicalResult {
+        return cache.checkEquivalent(lhsValue, rhsValue);
+      },
+      [&](Value lhsResult, Value rhsResult) {
+        cache.markEquivalent(lhsResult, rhsResult);
+      },
+      flags);
+}
+
+/*static*/ bool OperationEquivalence::isEquivalentTo(
+    Operation *lhs, Operation *rhs,
+    function_ref<LogicalResult(Operation *, Operation *)>
+        checkOpStructureEquivalent,
+    Flags flags) {
+  ValueEquivalenceCache cache;
+  return OperationEquivalence::isEquivalentTo(
+      lhs, rhs, checkOpStructureEquivalent,
       [&](Value lhsValue, Value rhsValue) -> LogicalResult {
         return cache.checkEquivalent(lhsValue, rhsValue);
       },

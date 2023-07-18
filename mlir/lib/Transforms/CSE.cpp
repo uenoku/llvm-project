@@ -35,8 +35,14 @@ using namespace mlir;
 namespace {
 struct SimpleOperationInfo : public llvm::DenseMapInfo<Operation *> {
   static unsigned getHashValue(const Operation *opC) {
+    auto *op = const_cast<Operation *>(opC);
+    // Use a custom hook if provided.
+    if (auto *interface =
+            dyn_cast_or_null<DialectCSEInterface>(op->getDialect()))
+      return interface->getHashValue(op);
+
     return OperationEquivalence::computeHash(
-        const_cast<Operation *>(opC),
+        op,
         /*hashOperands=*/OperationEquivalence::directHashValue,
         /*hashResults=*/OperationEquivalence::ignoreHashValue,
         OperationEquivalence::IgnoreLocations);
@@ -49,6 +55,14 @@ struct SimpleOperationInfo : public llvm::DenseMapInfo<Operation *> {
     if (lhs == getTombstoneKey() || lhs == getEmptyKey() ||
         rhs == getTombstoneKey() || rhs == getEmptyKey())
       return false;
+
+    if (lhs->getDialect() != rhs->getDialect())
+      return false;
+
+    if (auto *interface =
+            dyn_cast_or_null<DialectCSEInterface>(lhs->getDialect()))
+      return interface->isEqual(lhs, rhs);
+
     return OperationEquivalence::isEquivalentTo(
         const_cast<Operation *>(lhsC), const_cast<Operation *>(rhsC),
         OperationEquivalence::IgnoreLocations);
@@ -131,6 +145,11 @@ private:
 void CSEDriver::replaceUsesAndDelete(ScopedMapTy &knownValues, Operation *op,
                                      Operation *existing,
                                      bool hasSSADominance) {
+  // Invoke a callback provided by CSE interface.
+  if (auto *cseInterface =
+          dyn_cast_or_null<DialectCSEInterface>(op->getDialect()))
+    cseInterface->mergeOperations(existing, op);
+
   // If we find one then replace all uses of the current operation with the
   // existing one and mark it for deletion. We can only replace an operand in
   // an operation if it has not been visited yet.
