@@ -15,7 +15,9 @@
 
 #include "mlir/Support/LLVM.h"
 #include "mlir/Support/LogicalResult.h"
+#include "llvm/ADT/PointerIntPair.h"
 #include "llvm/ADT/STLExtras.h"
+#include "llvm/ADT/SmallVector.h"
 
 namespace mlir {
 class Diagnostic;
@@ -170,21 +172,46 @@ void walk(Operation *op, function_ref<void(Block *)> callback,
 template <typename Iterator>
 void walk(Operation *op, function_ref<void(Operation *)> callback,
           WalkOrder order) {
-  if (order == WalkOrder::PreOrder)
-    callback(op);
-
-  // TODO: This walk should be iterative over the operations.
-  for (auto &region : Iterator::makeIterable(*op)) {
-    for (auto &block : Iterator::makeIterable(region)) {
-      // Early increment here in the case where the operation is erased.
-      for (auto &nestedOp :
-           llvm::make_early_inc_range(Iterator::makeIterable(block)))
-        walk<Iterator>(&nestedOp, callback, order);
+  if (order == WalkOrder::PreOrder) {
+    SmallVector<Operation *, 8> worklist({op});
+    while (!worklist.empty()) {
+      size_t pos = worklist.size();
+      auto *topOp = worklist.pop_back_val();
+      callback(topOp);
+      for (auto &region : Iterator::makeIterable(*topOp)) {
+        for (auto &block : Iterator::makeIterable(region)) {
+          for (auto &nestedOp : Iterator::makeIterable(block))
+            worklist.push_back(&nestedOp);
+        }
+      }
+      std::reverse(worklist.begin() + pos, worklist.end());
     }
+    return;
   }
 
-  if (order == WalkOrder::PostOrder)
-    callback(op);
+  if (order == WalkOrder::PostOrder) {
+    SmallVector<llvm::PointerIntPair<Operation *, 1, bool>, 8> worklist;
+    worklist.push_back({op, false});
+    while (!worklist.empty()) {
+      auto opAndFlag = worklist.pop_back_val();
+      auto *topOp = opAndFlag.getPointer();
+      auto isPostTraversal = opAndFlag.getInt();
+      if (isPostTraversal) {
+        callback(topOp);
+        continue;
+      }
+      worklist.push_back({topOp, true});
+
+      size_t pos = worklist.size();
+      for (auto &region : Iterator::makeIterable(*topOp)) {
+        for (auto &block : Iterator::makeIterable(region)) {
+          for (auto &nestedOp : Iterator::makeIterable(block))
+            worklist.push_back({&nestedOp, false});
+        }
+      }
+      std::reverse(worklist.begin() + pos, worklist.end());
+    }
+  }
 }
 
 /// Walk all of the regions, blocks, or operations nested under (and including)
@@ -257,28 +284,62 @@ template <typename Iterator>
 WalkResult walk(Operation *op, function_ref<WalkResult(Operation *)> callback,
                 WalkOrder order) {
   if (order == WalkOrder::PreOrder) {
-    WalkResult result = callback(op);
-    // If skipped, caller will continue the walk on the next operation.
-    if (result.wasSkipped())
-      return WalkResult::advance();
-    if (result.wasInterrupted())
-      return WalkResult::interrupt();
+    // template <typename RegionIterator, typename BlockIterator,
+    //           typename OpIterator>
+    // struct StackElement {
+    //   Operation *op;
+    //   RegionIterator RegionIterator;
+    //   RegionIterator 
+    //   BlockIterator blockIterator;
+    //   OpIetrator opIterator;
+    // };
+
+    SmallVector<StackElement, 8> worklist({op});
+    while (!worklist.empty()) {
+      size_t pos = worklist.size();
+      auto *topOp = worklist.pop_back_val();
+      auto result = callback(topOp);
+      // If skipped, caller will continue the walk on the next operation.
+      if (result.wasSkipped())
+        continue;
+      if (result.wasInterrupted())
+        return WalkResult::interrupt();
+
+      for (auto &region : Iterator::makeIterable(*topOp)) {
+        for (auto &block : Iterator::makeIterable(region)) {
+          for (auto &nestedOp : Iterator::makeIterable(block))
+            worklist.push_back(&nestedOp);
+        }
+      }
+      std::reverse(worklist.begin() + pos, worklist.end());
+    }
+    return WalkResult::advance();
   }
 
-  // TODO: This walk should be iterative over the operations.
-  for (auto &region : Iterator::makeIterable(*op)) {
-    for (auto &block : Iterator::makeIterable(region)) {
-      // Early increment here in the case where the operation is erased.
-      for (auto &nestedOp :
-           llvm::make_early_inc_range(Iterator::makeIterable(block))) {
-        if (walk<Iterator>(&nestedOp, callback, order).wasInterrupted())
-          return WalkResult::interrupt();
+  assert(order == WalkOrder::PostOrder);
+  SmallVector<llvm::PointerIntPair<Operation *, 1, bool>, 8> worklist;
+  worklist.push_back({op, false});
+  while (!worklist.empty()) {
+    auto opAndFlag = worklist.pop_back_val();
+    auto *topOp = opAndFlag.getPointer();
+    auto isPostTraversal = opAndFlag.getInt();
+    if (isPostTraversal) {
+      auto result = callback(topOp);
+      if (result.wasInterrupted())
+        return WalkResult::interrupt();
+      continue;
+    }
+    worklist.push_back(llvm::PointerIntPair<Operation *, 1, bool>(topOp, true));
+    size_t pos = worklist.size();
+    for (auto &region : Iterator::makeIterable(*topOp)) {
+      for (auto &block : Iterator::makeIterable(region)) {
+        for (auto &nestedOp : Iterator::makeIterable(block))
+          worklist.push_back(
+              llvm::PointerIntPair<Operation *, 1, bool>(&nestedOp, false));
       }
     }
+    std::reverse(worklist.begin() + pos, worklist.end());
   }
-
-  if (order == WalkOrder::PostOrder)
-    return callback(op);
   return WalkResult::advance();
 }
 
