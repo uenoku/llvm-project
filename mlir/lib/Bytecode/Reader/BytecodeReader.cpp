@@ -24,6 +24,7 @@
 #include "llvm/ADT/StringRef.h"
 #include "llvm/Support/Endian.h"
 #include "llvm/Support/MemoryBufferRef.h"
+#include "llvm/Support/Mutex.h"
 #include "llvm/Support/SourceMgr.h"
 
 #include <cstddef>
@@ -1475,9 +1476,6 @@ private:
                                                bool &isIsolatedFromAbove);
 
   LogicalResult parseRegion(RegionReadState &readState);
-  LogicalResult parseBlockHeader(EncodingReader &reader,
-                                 RegionReadState &readState);
-  LogicalResult parseBlockArguments(EncodingReader &reader, Block *block);
 
   //===--------------------------------------------------------------------===//
   // Fields
@@ -1574,7 +1572,36 @@ private:
           // forward references to values that aren't yet defined.
           forwardRefOpState(UnknownLoc::get(parent->config.getContext()),
                             "builtin.unrealized_conversion_cast", ValueRange(),
-                            NoneType::get(parent->config.getContext())) {}
+                            NoneType::get(parent->config.getContext())),
+          parentReader(parent) {}
+
+    LogicalResult parseBlockHeader(EncodingReader &reader,
+                                   RegionReadState &readState);
+    LogicalResult parseBlockArguments(EncodingReader &reader, Block *block);
+
+    //===--------------------------------------------------------------------===//
+    // Attribute/Type Section
+
+    llvm::sys::SmartMutex<true> attrTypeReaderMutex;
+
+    /// Parse an attribute or type using the given reader.
+    template <typename T>
+    LogicalResult parseAttribute(EncodingReader &reader, T &result) {
+      llvm::sys::SmartScopedLock<true> lock(attrTypeReaderMutex);
+      return const_cast<AttrTypeReader &>(parentReader->attrTypeReader)
+          .parseAttribute(reader, result);
+    }
+    Type resolveType(size_t index) {
+      llvm::sys::SmartScopedLock<true> lock(attrTypeReaderMutex);
+      return const_cast<AttrTypeReader &>(parentReader->attrTypeReader)
+          .resolveType(index);
+    }
+    LogicalResult parseType(EncodingReader &reader, Type &result) {
+      llvm::sys::SmartScopedLock<true> lock(attrTypeReaderMutex);
+      return const_cast<AttrTypeReader &>(parentReader->attrTypeReader)
+          .parseType(reader, result);
+    }
+
     //===--------------------------------------------------------------------===//
     // Value Processing
 
@@ -2090,7 +2117,7 @@ BytecodeReader::Impl::parseIRSection(ArrayRef<uint8_t> sectionData,
   regionStack.emplace_back(*moduleOp, &reader, /*isIsolatedFromAbove=*/true);
   regionStack.back().curBlocks.push_back(moduleOp->getBody());
   regionStack.back().curBlock = regionStack.back().curRegion->begin();
-  if (failed(parseBlockHeader(reader, regionStack.back())))
+  if (failed(regionReader.parseBlockHeader(reader, regionStack.back())))
     return failure();
 
   regionReader.valueScopes.emplace_back();
@@ -2205,7 +2232,7 @@ BytecodeReader::Impl::parseRegions(std::vector<RegionReadState> &regionStack,
       // Move to the next block of the region.
       if (++readState.curBlock == readState.curRegion->end())
         break;
-      if (failed(parseBlockHeader(reader, readState)))
+      if (failed(regionReader.parseBlockHeader(reader, readState)))
         return failure();
     } while (true);
 
@@ -2400,12 +2427,11 @@ LogicalResult BytecodeReader::Impl::parseRegion(RegionReadState &readState) {
 
   // Parse the entry block of the region.
   readState.curBlock = readState.curRegion->begin();
-  return parseBlockHeader(reader, readState);
+  return regionReader.parseBlockHeader(reader, readState);
 }
 
-LogicalResult
-BytecodeReader::Impl::parseBlockHeader(EncodingReader &reader,
-                                       RegionReadState &readState) {
+LogicalResult BytecodeReader::Impl::IsolatedRegionReader::parseBlockHeader(
+    EncodingReader &reader, RegionReadState &readState) {
   bool hasArgs;
   if (failed(reader.parseVarIntWithFlag(readState.numOpsRemaining, hasArgs)))
     return failure();
@@ -2415,7 +2441,7 @@ BytecodeReader::Impl::parseBlockHeader(EncodingReader &reader,
     return failure();
 
   // Uselist orders are available since version 3 of the bytecode.
-  if (version < bytecode::kUseListOrdering)
+  if (parentReader->version < bytecode::kUseListOrdering)
     return success();
 
   uint8_t hasUseListOrders = 0;
@@ -2427,22 +2453,21 @@ BytecodeReader::Impl::parseBlockHeader(EncodingReader &reader,
 
   Block &blk = *readState.curBlock;
   auto argIdxToUseListMap =
-      regionReader.parseUseListOrderForRange(reader, blk.getNumArguments());
+      parseUseListOrderForRange(reader, blk.getNumArguments());
   if (failed(argIdxToUseListMap) || argIdxToUseListMap->empty())
     return failure();
 
   for (size_t idx = 0; idx < blk.getNumArguments(); idx++)
     if (argIdxToUseListMap->contains(idx))
-      regionReader.valueToUseListMap.try_emplace(
-          blk.getArgument(idx).getAsOpaquePointer(),
-          argIdxToUseListMap->at(idx));
+      valueToUseListMap.try_emplace(blk.getArgument(idx).getAsOpaquePointer(),
+                                    argIdxToUseListMap->at(idx));
 
   // We don't parse the operations of the block here, that's done elsewhere.
   return success();
 }
 
-LogicalResult BytecodeReader::Impl::parseBlockArguments(EncodingReader &reader,
-                                                        Block *block) {
+LogicalResult BytecodeReader::Impl::IsolatedRegionReader::parseBlockArguments(
+    EncodingReader &reader, Block *block) {
   // Parse the value ID for the first argument, and the number of arguments.
   uint64_t numArgs;
   if (failed(reader.parseVarInt(numArgs)))
@@ -2453,16 +2478,17 @@ LogicalResult BytecodeReader::Impl::parseBlockArguments(EncodingReader &reader,
   argTypes.reserve(numArgs);
   argLocs.reserve(numArgs);
 
-  Location unknownLoc = UnknownLoc::get(config.getContext());
+  assert(parentReader);
+  Location unknownLoc = UnknownLoc::get(parentReader->config.getContext());
   while (numArgs--) {
     Type argType;
     LocationAttr argLoc = unknownLoc;
-    if (version >= bytecode::kElideUnknownBlockArgLocation) {
+    if (parentReader->version >= bytecode::kElideUnknownBlockArgLocation) {
       // Parse the type with hasLoc flag to determine if it has type.
       uint64_t typeIdx;
       bool hasLoc;
       if (failed(reader.parseVarIntWithFlag(typeIdx, hasLoc)) ||
-          !(argType = attrTypeReader.resolveType(typeIdx)))
+          !(argType = resolveType(typeIdx)))
         return failure();
       if (hasLoc && failed(parseAttribute(reader, argLoc)))
         return failure();
@@ -2476,7 +2502,7 @@ LogicalResult BytecodeReader::Impl::parseBlockArguments(EncodingReader &reader,
     argLocs.push_back(argLoc);
   }
   block->addArguments(argTypes, argLocs);
-  return regionReader.defineValues(reader, block->getArguments());
+  return defineValues(reader, block->getArguments());
 }
 
 //===----------------------------------------------------------------------===//
