@@ -1322,12 +1322,7 @@ public:
       : config(config), fileLoc(fileLoc), lazyLoading(lazyLoading),
         attrTypeReader(stringReader, resourceReader, dialectsMap, version,
                        fileLoc, config),
-        // Use the builtin unrealized conversion cast operation to represent
-        // forward references to values that aren't yet defined.
-        forwardRefOpState(UnknownLoc::get(config.getContext()),
-                          "builtin.unrealized_conversion_cast", ValueRange(),
-                          NoneType::get(config.getContext())),
-        buffer(buffer), bufferOwnerRef(bufferOwnerRef) {}
+        regionReader(this), buffer(buffer), bufferOwnerRef(bufferOwnerRef) {}
 
   /// Read the bytecode defined within `buffer` into the given block.
   LogicalResult read(Block *block,
@@ -1385,7 +1380,7 @@ private:
   LogicalResult materialize(LazyLoadableOpsMap::iterator it) {
     assert(it != lazyLoadableOpsMap.end() &&
            "materialize called on non-materializable op");
-    valueScopes.emplace_back();
+    regionReader.valueScopes.emplace_back();
     std::vector<RegionReadState> regionStack;
     regionStack.push_back(std::move(it->getSecond()->second));
     lazyLoadableOps.erase(it->getSecond());
@@ -1485,55 +1480,6 @@ private:
   LogicalResult parseBlockArguments(EncodingReader &reader, Block *block);
 
   //===--------------------------------------------------------------------===//
-  // Value Processing
-
-  /// Parse an operand reference using the given reader. Returns nullptr in the
-  /// case of failure.
-  Value parseOperand(EncodingReader &reader);
-
-  /// Sequentially define the given value range.
-  LogicalResult defineValues(EncodingReader &reader, ValueRange values);
-
-  /// Create a value to use for a forward reference.
-  Value createForwardRef();
-
-  //===--------------------------------------------------------------------===//
-  // Use-list order helpers
-
-  /// This struct is a simple storage that contains information required to
-  /// reorder the use-list of a value with respect to the pre-order traversal
-  /// ordering.
-  struct UseListOrderStorage {
-    UseListOrderStorage(bool isIndexPairEncoding,
-                        SmallVector<unsigned, 4> &&indices)
-        : indices(std::move(indices)),
-          isIndexPairEncoding(isIndexPairEncoding){};
-    /// The vector containing the information required to reorder the
-    /// use-list of a value.
-    SmallVector<unsigned, 4> indices;
-
-    /// Whether indices represent a pair of type `(src, dst)` or it is a direct
-    /// indexing, such as `dst = order[src]`.
-    bool isIndexPairEncoding;
-  };
-
-  /// Parse use-list order from bytecode for a range of values if available. The
-  /// range is expected to be either a block argument or an op result range. On
-  /// success, return a map of the position in the range and the use-list order
-  /// encoding. The function assumes to know the size of the range it is
-  /// processing.
-  using UseListMapT = DenseMap<unsigned, UseListOrderStorage>;
-  FailureOr<UseListMapT> parseUseListOrderForRange(EncodingReader &reader,
-                                                   uint64_t rangeSize);
-
-  /// Shuffle the use-chain according to the order parsed.
-  LogicalResult sortUseListOrder(Value value);
-
-  /// Recursively visit all the values defined within topLevelOp and sort the
-  /// use-list orders according to the indices parsed.
-  LogicalResult processUseLists(Operation *topLevelOp);
-
-  //===--------------------------------------------------------------------===//
   // Fields
 
   /// This class represents a single value scope, in which a value scope is
@@ -1594,32 +1540,98 @@ private:
   /// The reader used to process resources within the bytecode.
   ResourceSectionReader resourceReader;
 
-  /// Worklist of values with custom use-list orders to process before the end
-  /// of the parsing.
-  DenseMap<void *, UseListOrderStorage> valueToUseListMap;
-
   /// The table of strings referenced within the bytecode file.
   StringSectionReader stringReader;
 
   /// The table of properties referenced by the operation in the bytecode file.
   PropertiesSectionReader propertiesReader;
 
-  /// The current set of available IR value scopes.
-  std::vector<ValueScope> valueScopes;
+  //===--------------------------------------------------------------------===//
+  // Use-list order helpers
 
-  /// The global pre-order operation ordering.
-  DenseMap<Operation *, unsigned> operationIDs;
+  /// This struct is a simple storage that contains information required to
+  /// reorder the use-list of a value with respect to the pre-order traversal
+  /// ordering.
+  struct UseListOrderStorage {
+    UseListOrderStorage(bool isIndexPairEncoding,
+                        SmallVector<unsigned, 4> &&indices)
+        : indices(std::move(indices)),
+          isIndexPairEncoding(isIndexPairEncoding){};
+    /// The vector containing the information required to reorder the
+    /// use-list of a value.
+    SmallVector<unsigned, 4> indices;
 
-  /// A block containing the set of operations defined to create forward
-  /// references.
-  Block forwardRefOps;
+    /// Whether indices represent a pair of type `(src, dst)` or it is a
+    /// direct indexing, such as `dst = order[src]`.
+    bool isIndexPairEncoding;
+  };
 
-  /// A block containing previously created, and no longer used, forward
-  /// reference operations.
-  Block openForwardRefOps;
+  using UseListMapT = DenseMap<unsigned, UseListOrderStorage>;
 
-  /// An operation state used when instantiating forward references.
-  OperationState forwardRefOpState;
+  struct IsolatedRegionReader {
+    IsolatedRegionReader(const mlir::BytecodeReader::Impl *parent)
+        : // Use the builtin unrealized conversion cast operation to represent
+          // forward references to values that aren't yet defined.
+          forwardRefOpState(UnknownLoc::get(parent->config.getContext()),
+                            "builtin.unrealized_conversion_cast", ValueRange(),
+                            NoneType::get(parent->config.getContext())) {}
+    //===--------------------------------------------------------------------===//
+    // Value Processing
+
+    /// Parse an operand reference using the given reader. Returns nullptr in
+    /// the case of failure.
+    Value parseOperand(EncodingReader &reader);
+
+    /// Sequentially define the given value range.
+    LogicalResult defineValues(EncodingReader &reader, ValueRange values);
+
+    /// Create a value to use for a forward reference.
+    Value createForwardRef();
+
+    /// Parse use-list order from bytecode for a range of values if available.
+    /// The range is expected to be either a block argument or an op result
+    /// range. On success, return a map of the position in the range and the
+    /// use-list order encoding. The function assumes to know the size of the
+    /// range it is processing.
+    FailureOr<UseListMapT> parseUseListOrderForRange(EncodingReader &reader,
+                                                     uint64_t rangeSize);
+
+    /// Shuffle the use-chain according to the order parsed.
+    LogicalResult sortUseListOrder(Value value);
+
+    /// Recursively visit all the values defined within topLevelOp and sort the
+    /// use-list orders according to the indices parsed.
+    LogicalResult processUseLists(Operation *topLevelOp);
+
+    LogicalResult parseRegion();
+
+    ArrayRef<uint8_t> sectionData;
+    Block *block;
+
+    // The value scopes defined within the regions.
+    std::vector<ValueScope> valueScopes;
+
+    DenseMap<void *, UseListOrderStorage> valueToUseListMap;
+
+    /// The global pre-order operation ordering.
+    DenseMap<Operation *, unsigned> operationIDs;
+
+    /// A block containing the set of operations defined to create forward
+    /// references.
+    Block forwardRefOps;
+
+    /// A block containing previously created, and no longer used, forward
+    /// reference operations.
+    Block openForwardRefOps;
+
+    /// An operation state used when instantiating forward references.
+    OperationState forwardRefOpState;
+
+    // The parent bytecode reader.
+    const mlir::BytecodeReader::Impl *parentReader;
+  };
+
+  IsolatedRegionReader regionReader;
 
   /// Reference to the input buffer.
   llvm::MemoryBufferRef buffer;
@@ -1905,8 +1917,8 @@ LogicalResult BytecodeReader::Impl::parseResourceSection(
 // UseListOrder Helpers
 
 FailureOr<BytecodeReader::Impl::UseListMapT>
-BytecodeReader::Impl::parseUseListOrderForRange(EncodingReader &reader,
-                                                uint64_t numResults) {
+BytecodeReader::Impl::IsolatedRegionReader::parseUseListOrderForRange(
+    EncodingReader &reader, uint64_t numResults) {
   BytecodeReader::Impl::UseListMapT map;
   uint64_t numValuesToRead = 1;
   if (numResults > 1 && failed(reader.parseVarInt(numValuesToRead)))
@@ -1943,7 +1955,8 @@ BytecodeReader::Impl::parseUseListOrderForRange(EncodingReader &reader,
 /// consistent with the reverse pre-order walk of the IR. If multiple uses lie
 /// on the same operation, the order will follow the reverse operand number
 /// ordering.
-LogicalResult BytecodeReader::Impl::sortUseListOrder(Value value) {
+LogicalResult
+BytecodeReader::Impl::IsolatedRegionReader::sortUseListOrder(Value value) {
   // Early return for trivial use-lists.
   if (value.use_empty() || value.hasOneUse())
     return success();
@@ -2035,7 +2048,8 @@ LogicalResult BytecodeReader::Impl::sortUseListOrder(Value value) {
   return success();
 }
 
-LogicalResult BytecodeReader::Impl::processUseLists(Operation *topLevelOp) {
+LogicalResult BytecodeReader::Impl::IsolatedRegionReader::processUseLists(
+    Operation *topLevelOp) {
   // Precompute operation IDs according to the pre-order walk of the IR. We
   // can't do this while parsing since parseRegions ordering is not strictly
   // equal to the pre-order walk.
@@ -2078,20 +2092,21 @@ BytecodeReader::Impl::parseIRSection(ArrayRef<uint8_t> sectionData,
   regionStack.back().curBlock = regionStack.back().curRegion->begin();
   if (failed(parseBlockHeader(reader, regionStack.back())))
     return failure();
-  valueScopes.emplace_back();
-  valueScopes.back().push(regionStack.back());
+
+  regionReader.valueScopes.emplace_back();
+  regionReader.valueScopes.back().push(regionStack.back());
 
   // Iteratively parse regions until everything has been resolved.
   while (!regionStack.empty())
     if (failed(parseRegions(regionStack, regionStack.back())))
       return failure();
-  if (!forwardRefOps.empty()) {
+  if (!regionReader.forwardRefOps.empty()) {
     return reader.emitError(
         "not all forward unresolved forward operand references");
   }
 
   // Sort use-lists according to what specified in bytecode.
-  if (failed(processUseLists(*moduleOp)))
+  if (failed(regionReader.processUseLists(*moduleOp)))
     return reader.emitError(
         "parsed use-list orders were invalid and could not be applied");
 
@@ -2182,7 +2197,7 @@ BytecodeReader::Impl::parseRegions(std::vector<RegionReadState> &regionStack,
 
           // If the op is isolated from above, push a new value scope.
           if (isIsolatedFromAbove)
-            valueScopes.emplace_back();
+            regionReader.valueScopes.emplace_back();
           return success();
         }
       }
@@ -2196,14 +2211,15 @@ BytecodeReader::Impl::parseRegions(std::vector<RegionReadState> &regionStack,
 
     // Reset the current block and any values reserved for this region.
     readState.curBlock = {};
-    valueScopes.back().pop(readState);
+    regionReader.valueScopes.back().pop(readState);
   }
 
   // When the regions have been fully parsed, pop them off of the read stack. If
   // the regions were isolated from above, we also pop the last value scope.
   if (readState.isIsolatedFromAbove) {
-    assert(!valueScopes.empty() && "Expect a valueScope after reading region");
-    valueScopes.pop_back();
+    assert(!regionReader.valueScopes.empty() &&
+           "Expect a valueScope after reading region");
+    regionReader.valueScopes.pop_back();
   }
   assert(!regionStack.empty() && "Expect a regionStack after reading region");
   regionStack.pop_back();
@@ -2286,7 +2302,7 @@ BytecodeReader::Impl::parseOpWithoutRegions(EncodingReader &reader,
       return failure();
     opState.operands.resize(numOperands);
     for (int i = 0, e = numOperands; i < e; ++i)
-      if (!(opState.operands[i] = parseOperand(reader)))
+      if (!(opState.operands[i] = regionReader.parseOperand(reader)))
         return failure();
   }
 
@@ -2309,7 +2325,8 @@ BytecodeReader::Impl::parseOpWithoutRegions(EncodingReader &reader,
   if (version >= bytecode::kUseListOrdering &&
       (opMask & bytecode::OpEncodingMask::kHasUseListOrders)) {
     size_t numResults = opState.types.size();
-    auto parseResult = parseUseListOrderForRange(reader, numResults);
+    auto parseResult =
+        regionReader.parseUseListOrderForRange(reader, numResults);
     if (failed(parseResult))
       return failure();
     resultIdxToUseListMap = std::move(*parseResult);
@@ -2334,7 +2351,7 @@ BytecodeReader::Impl::parseOpWithoutRegions(EncodingReader &reader,
   // do this if the current value scope is empty. That is, the op was not
   // encoded within a parent region.
   if (readState.numValues && op->getNumResults() &&
-      failed(defineValues(reader, op->getResults())))
+      failed(regionReader.defineValues(reader, op->getResults())))
     return failure();
 
   /// Store a map for every value that received a custom use-list order from the
@@ -2342,8 +2359,9 @@ BytecodeReader::Impl::parseOpWithoutRegions(EncodingReader &reader,
   if (resultIdxToUseListMap.has_value()) {
     for (size_t idx = 0; idx < op->getNumResults(); idx++) {
       if (resultIdxToUseListMap->contains(idx)) {
-        valueToUseListMap.try_emplace(op->getResult(idx).getAsOpaquePointer(),
-                                      resultIdxToUseListMap->at(idx));
+        regionReader.valueToUseListMap.try_emplace(
+            op->getResult(idx).getAsOpaquePointer(),
+            resultIdxToUseListMap->at(idx));
       }
     }
   }
@@ -2378,7 +2396,7 @@ LogicalResult BytecodeReader::Impl::parseRegion(RegionReadState &readState) {
   }
 
   // Prepare the current value scope for this region.
-  valueScopes.back().push(readState);
+  regionReader.valueScopes.back().push(readState);
 
   // Parse the entry block of the region.
   readState.curBlock = readState.curRegion->begin();
@@ -2409,14 +2427,15 @@ BytecodeReader::Impl::parseBlockHeader(EncodingReader &reader,
 
   Block &blk = *readState.curBlock;
   auto argIdxToUseListMap =
-      parseUseListOrderForRange(reader, blk.getNumArguments());
+      regionReader.parseUseListOrderForRange(reader, blk.getNumArguments());
   if (failed(argIdxToUseListMap) || argIdxToUseListMap->empty())
     return failure();
 
   for (size_t idx = 0; idx < blk.getNumArguments(); idx++)
     if (argIdxToUseListMap->contains(idx))
-      valueToUseListMap.try_emplace(blk.getArgument(idx).getAsOpaquePointer(),
-                                    argIdxToUseListMap->at(idx));
+      regionReader.valueToUseListMap.try_emplace(
+          blk.getArgument(idx).getAsOpaquePointer(),
+          argIdxToUseListMap->at(idx));
 
   // We don't parse the operations of the block here, that's done elsewhere.
   return success();
@@ -2457,13 +2476,14 @@ LogicalResult BytecodeReader::Impl::parseBlockArguments(EncodingReader &reader,
     argLocs.push_back(argLoc);
   }
   block->addArguments(argTypes, argLocs);
-  return defineValues(reader, block->getArguments());
+  return regionReader.defineValues(reader, block->getArguments());
 }
 
 //===----------------------------------------------------------------------===//
 // Value Processing
 
-Value BytecodeReader::Impl::parseOperand(EncodingReader &reader) {
+Value BytecodeReader::Impl::IsolatedRegionReader::parseOperand(
+    EncodingReader &reader) {
   std::vector<Value> &values = valueScopes.back().values;
   Value *value = nullptr;
   if (failed(parseEntry(reader, values, value, "value")))
@@ -2475,8 +2495,9 @@ Value BytecodeReader::Impl::parseOperand(EncodingReader &reader) {
   return *value;
 }
 
-LogicalResult BytecodeReader::Impl::defineValues(EncodingReader &reader,
-                                                 ValueRange newValues) {
+LogicalResult
+BytecodeReader::Impl::IsolatedRegionReader::defineValues(EncodingReader &reader,
+                                                         ValueRange newValues) {
   ValueScope &valueScope = valueScopes.back();
   std::vector<Value> &values = valueScope.values;
 
@@ -2511,7 +2532,7 @@ LogicalResult BytecodeReader::Impl::defineValues(EncodingReader &reader,
   return success();
 }
 
-Value BytecodeReader::Impl::createForwardRef() {
+Value BytecodeReader::Impl::IsolatedRegionReader::createForwardRef() {
   // Check for an avaliable existing operation to use. Otherwise, create a new
   // fake operation to use for the reference.
   if (!openForwardRefOps.empty()) {
