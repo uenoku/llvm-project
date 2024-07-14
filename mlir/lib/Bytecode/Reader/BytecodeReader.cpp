@@ -2314,10 +2314,12 @@ LogicalResult BytecodeReader::Impl::IsolatedRegionReader::parseRegions(
               impl->lazyLoadableOpsMap.try_emplace(
                   *op, std::prev(impl->lazyLoadableOps.end()));
               continue;
-            } else if (stopAtIsolatedAbove) {
+            } 
+          }
+
+          if (!parentReader->lazyLoading && isIsolatedFromAbove && stopAtIsolatedAbove) {
               isolatedAboveRegions.emplace_back(*op, std::move(childState));
               continue;
-            }
           }
           regionStack.push_back(std::move(childState));
 
