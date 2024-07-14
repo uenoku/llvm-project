@@ -78,10 +78,10 @@ LogicalResult failableParallelForEach(MLIRContext *context, IteratorT begin,
   return failure(processingFailed);
 }
 
-template <typename IteratorT, typename FuncT, typename WorkerT>
+template <typename IteratorT, typename FuncT, typename WorkerFnT>
 LogicalResult failableParallelForEachWithWorker(MLIRContext *context,
                                                 IteratorT begin, IteratorT end,
-                                                FuncT &&func, WorkerT worker) {
+                                                FuncT &&func, WorkerFnT workerFn) {
   unsigned numElements = static_cast<unsigned>(std::distance(begin, end));
   if (numElements == 0)
     return success();
@@ -89,6 +89,7 @@ LogicalResult failableParallelForEachWithWorker(MLIRContext *context,
   // If multithreading is disabled or there is a small number of elements,
   // process the elements directly on this thread.
   if (!context->isMultithreadingEnabled() || numElements <= 1) {
+    auto worker = workerFn();
     for (; begin != end; ++begin)
       if (failed(func(worker, *begin)))
         return failure();
@@ -106,13 +107,13 @@ LogicalResult failableParallelForEachWithWorker(MLIRContext *context,
   size_t numActions = std::min(numElements, threadPool.getMaxConcurrency());
 
   auto processFn = [&] {
-    WorkerT localWorker(worker);
+    auto worker = workerFn();
     while (!processingFailed) {
       unsigned index = curIndex++;
       if (index >= numElements)
         break;
       handler.setOrderIDForThread(index);
-      if (failed(func(localWorker, *std::next(begin, index))))
+      if (failed(func(worker, *std::next(begin, index))))
         processingFailed = true;
       handler.eraseOrderIDForThread();
     }
