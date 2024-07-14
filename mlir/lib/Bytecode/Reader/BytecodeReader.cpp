@@ -802,8 +802,8 @@ class AttrTypeReader {
   using TypeEntry = Entry<Type>;
 
 public:
-  AttrTypeReader(StringSectionReader &stringReader,
-                 ResourceSectionReader &resourceReader,
+  AttrTypeReader(const StringSectionReader &stringReader,
+                 const ResourceSectionReader &resourceReader,
                  const llvm::StringMap<BytecodeDialect *> &dialectsMap,
                  uint64_t &bytecodeVersion, Location fileLoc,
                  const ParserConfig &config)
@@ -822,11 +822,9 @@ public:
   /// Resolve the attribute or type at the given index. Returns nullptr on
   /// failure.
   Attribute resolveAttribute(size_t index) {
-    return resolveEntry(attrMutex, attributes, index, "Attribute");
+    return resolveEntry(attributes, index, "Attribute");
   }
-  Type resolveType(size_t index) {
-    return resolveEntry(typeMutex, types, index, "Type");
-  }
+  Type resolveType(size_t index) { return resolveEntry(types, index, "Type"); }
 
   /// Parse a reference to an attribute or type using the given reader.
   LogicalResult parseAttribute(EncodingReader &reader, Attribute &result) {
@@ -870,8 +868,7 @@ public:
 private:
   /// Resolve the given entry at `index`.
   template <typename T>
-  T resolveEntry(llvm::sys::SmartRWMutex<true> &mutex,
-                 SmallVectorImpl<Entry<T>> &entries, size_t index,
+  T resolveEntry(SmallVectorImpl<Entry<T>> &entries, size_t index,
                  StringRef entryType);
 
   /// Parse an entry using the given reader that was encoded using the textual
@@ -888,11 +885,11 @@ private:
 
   /// The string section reader used to resolve string references when parsing
   /// custom encoded attribute/type entries.
-  StringSectionReader &stringReader;
+  const StringSectionReader &stringReader;
 
   /// The resource section reader used to resolve resource references when
   /// parsing custom encoded attribute/type entries.
-  ResourceSectionReader &resourceReader;
+  const ResourceSectionReader &resourceReader;
 
   /// The map of the loaded dialects used to retrieve dialect information, such
   /// as the dialect version.
@@ -901,8 +898,6 @@ private:
   /// The set of attribute and type entries.
   SmallVector<AttrEntry> attributes;
   SmallVector<TypeEntry> types;
-
-  llvm::sys::SmartRWMutex<true> attrMutex, typeMutex;
 
   /// A location used for error emission.
   Location fileLoc;
@@ -1199,8 +1194,7 @@ LogicalResult AttrTypeReader::initialize(
 }
 
 template <typename T>
-T AttrTypeReader::resolveEntry(llvm::sys::SmartRWMutex<true> &mutex,
-                               SmallVectorImpl<Entry<T>> &entries, size_t index,
+T AttrTypeReader::resolveEntry(SmallVectorImpl<Entry<T>> &entries, size_t index,
                                StringRef entryType) {
   if (index >= entries.size()) {
     emitError(fileLoc) << "invalid " << entryType << " index: " << index;
@@ -1210,20 +1204,20 @@ T AttrTypeReader::resolveEntry(llvm::sys::SmartRWMutex<true> &mutex,
   // If the entry has already been resolved, there is nothing left to do.
   Entry<T> &entry = entries[index];
   if (isWithinMultithread()) {
-    llvm::sys::SmartScopedReader<true> lock(mutex);
+    // llvm::sys::SmartScopedReader<true> lock(mutex);
     if (entry.entry)
       return entry.entry;
   } else if (entry.entry)
     return entry.entry;
 
-  llvm::sys::SmartScopedWriter<true> lock(mutex);
+  // llvm::sys::SmartScopedWriter<true> lock(mutex);
 
-  if (isWithinMultithread())
-    mutex.lock();
-  auto mutexUnlockDefer = llvm::make_scope_exit([&] {
-    if (isWithinMultithread())
-      mutex.unlock();
-  });
+  // if (isWithinMultithread())
+  //   mutex.lock();
+  // auto mutexUnlockDefer = llvm::make_scope_exit([&] {
+  //   if (isWithinMultithread())
+  //     mutex.unlock();
+  // });
 
   // Parse the entry.
   EncodingReader reader(entry.data, fileLoc);
@@ -1344,7 +1338,7 @@ public:
       : config(config), fileLoc(fileLoc), lazyLoading(lazyLoading),
         attrTypeReader(stringReader, resourceReader, dialectsMap, version,
                        fileLoc, config),
-        regionReader(this), buffer(buffer), bufferOwnerRef(bufferOwnerRef) {}
+        buffer(buffer), bufferOwnerRef(bufferOwnerRef) {}
 
   /// Read the bytecode defined within `buffer` into the given block.
   LogicalResult read(Block *block,
@@ -1402,6 +1396,7 @@ private:
   LogicalResult materialize(LazyLoadableOpsMap::iterator it) {
     assert(it != lazyLoadableOpsMap.end() &&
            "materialize called on non-materializable op");
+    IsolatedRegionReader regionReader(this);
     regionReader.valueScopes.emplace_back();
     std::vector<RegionReadState> regionStack;
     regionStack.push_back(std::move(it->getSecond()->second));
@@ -1409,7 +1404,7 @@ private:
     lazyLoadableOpsMap.erase(it);
 
     while (!regionStack.empty())
-      if (failed(parseRegions(regionStack, regionStack.back())))
+      if (failed(regionReader.parseRegions(regionStack, regionStack.back())))
         return failure();
     return success();
   }
@@ -1490,10 +1485,6 @@ private:
   };
 
   LogicalResult parseIRSection(ArrayRef<uint8_t> sectionData, Block *block);
-  LogicalResult parseRegions(std::vector<RegionReadState> &regionStack,
-                             RegionReadState &readState);
-
-  LogicalResult parseRegion(RegionReadState &readState);
 
   //===--------------------------------------------------------------------===//
   // Fields
@@ -1584,7 +1575,6 @@ private:
 
   using UseListMapT = DenseMap<unsigned, UseListOrderStorage>;
 
-  llvm::sys::SmartMutex<true> attrTypeReaderMutex;
   struct IsolatedRegionReader {
     IsolatedRegionReader(const mlir::BytecodeReader::Impl *parent)
         : // Use the builtin unrealized conversion cast operation to represent
@@ -1592,8 +1582,11 @@ private:
           forwardRefOpState(UnknownLoc::get(parent->config.getContext()),
                             "builtin.unrealized_conversion_cast", ValueRange(),
                             NoneType::get(parent->config.getContext())),
-          parentReader(parent) {}
+          attrTypeReader(parent->attrTypeReader), parentReader(parent) {}
 
+    LogicalResult parseRegion(RegionReadState &readState);
+    LogicalResult parseRegions(std::vector<RegionReadState> &regionStack,
+                               RegionReadState &readState);
     LogicalResult parseBlockHeader(EncodingReader &reader,
                                    RegionReadState &readState);
     LogicalResult parseBlockArguments(EncodingReader &reader, Block *block);
@@ -1605,24 +1598,14 @@ private:
     //===--------------------------------------------------------------------===//
     // Attribute/Type Section
 
-    llvm::sys::SmartMutex<true> attrTypeReaderMutex;
-
     /// Parse an attribute or type using the given reader.
     template <typename T>
     LogicalResult parseAttribute(EncodingReader &reader, T &result) {
-      llvm::sys::SmartScopedLock<true> lock(attrTypeReaderMutex);
-      return const_cast<AttrTypeReader &>(parentReader->attrTypeReader)
-          .parseAttribute(reader, result);
+      return attrTypeReader.parseAttribute(reader, result);
     }
-    Type resolveType(size_t index) {
-      llvm::sys::SmartScopedLock<true> lock(attrTypeReaderMutex);
-      return const_cast<AttrTypeReader &>(parentReader->attrTypeReader)
-          .resolveType(index);
-    }
+    Type resolveType(size_t index) { return attrTypeReader.resolveType(index); }
     LogicalResult parseType(EncodingReader &reader, Type &result) {
-      llvm::sys::SmartScopedLock<true> lock(attrTypeReaderMutex);
-      return const_cast<AttrTypeReader &>(parentReader->attrTypeReader)
-          .parseType(reader, result);
+      return attrTypeReader.parseType(reader, result);
     }
 
     //===--------------------------------------------------------------------===//
@@ -1653,11 +1636,6 @@ private:
     /// use-list orders according to the indices parsed.
     LogicalResult processUseLists(Operation *topLevelOp);
 
-    LogicalResult parseRegion();
-
-    ArrayRef<uint8_t> sectionData;
-    Block *block;
-
     // The value scopes defined within the regions.
     std::vector<ValueScope> valueScopes;
 
@@ -1677,11 +1655,13 @@ private:
     /// An operation state used when instantiating forward references.
     OperationState forwardRefOpState;
 
+    AttrTypeReader attrTypeReader;
+
     // The parent bytecode reader.
     const mlir::BytecodeReader::Impl *parentReader;
   };
 
-  IsolatedRegionReader regionReader;
+  // IsolatedRegionReader regionReader;
 
   /// Reference to the input buffer.
   llvm::MemoryBufferRef buffer;
@@ -2140,6 +2120,7 @@ BytecodeReader::Impl::parseIRSection(ArrayRef<uint8_t> sectionData,
   regionStack.emplace_back(*moduleOp, &reader, /*isIsolatedFromAbove=*/true);
   regionStack.back().curBlocks.push_back(moduleOp->getBody());
   regionStack.back().curBlock = regionStack.back().curRegion->begin();
+  IsolatedRegionReader regionReader(this);
   if (failed(regionReader.parseBlockHeader(reader, regionStack.back())))
     return failure();
 
@@ -2148,7 +2129,7 @@ BytecodeReader::Impl::parseIRSection(ArrayRef<uint8_t> sectionData,
 
   // Iteratively parse regions until everything has been resolved.
   while (!regionStack.empty())
-    if (failed(parseRegions(regionStack, regionStack.back())))
+    if (failed(regionReader.parseRegions(regionStack, regionStack.back())))
       return failure();
   if (!regionReader.forwardRefOps.empty()) {
     return reader.emitError(
@@ -2183,9 +2164,8 @@ BytecodeReader::Impl::parseIRSection(ArrayRef<uint8_t> sectionData,
   return success();
 }
 
-LogicalResult
-BytecodeReader::Impl::parseRegions(std::vector<RegionReadState> &regionStack,
-                                   RegionReadState &readState) {
+LogicalResult BytecodeReader::Impl::IsolatedRegionReader::parseRegions(
+    std::vector<RegionReadState> &regionStack, RegionReadState &readState) {
   // Process regions, blocks, and operations until the end or if a nested
   // region is encountered. In this case we push a new state in regionStack and
   // return, the processing of the current region will resume afterward.
@@ -2210,8 +2190,8 @@ BytecodeReader::Impl::parseRegions(std::vector<RegionReadState> &regionStack,
         // Read in the next operation. We don't read its regions directly, we
         // handle those afterwards as necessary.
         bool isIsolatedFromAbove = false;
-        FailureOr<Operation *> op = regionReader.parseOpWithoutRegions(
-            reader, readState, isIsolatedFromAbove);
+        FailureOr<Operation *> op =
+            parseOpWithoutRegions(reader, readState, isIsolatedFromAbove);
         if (failed(op))
           return failure();
 
@@ -2223,23 +2203,28 @@ BytecodeReader::Impl::parseRegions(std::vector<RegionReadState> &regionStack,
           RegionReadState childState(*op, &reader, isIsolatedFromAbove);
 
           // Isolated regions are encoded as a section in version 2 and above.
-          if (version >= bytecode::kLazyLoading && isIsolatedFromAbove) {
+          if (parentReader->version >= bytecode::kLazyLoading &&
+              isIsolatedFromAbove) {
             bytecode::Section::ID sectionID;
             ArrayRef<uint8_t> sectionData;
             if (failed(reader.parseSection(sectionID, sectionData)))
               return failure();
             if (sectionID != bytecode::Section::kIR)
-              return emitError(fileLoc, "expected IR section for region");
-            childState.owningReader =
-                std::make_unique<EncodingReader>(sectionData, fileLoc);
+              return emitError(parentReader->fileLoc,
+                               "expected IR section for region");
+            childState.owningReader = std::make_unique<EncodingReader>(
+                sectionData, parentReader->fileLoc);
             childState.reader = childState.owningReader.get();
 
             // If the user has a callback set, they have the opportunity to
             // control lazyloading as we go.
-            if (lazyLoading && (!lazyOpsCallback || !lazyOpsCallback(*op))) {
-              lazyLoadableOps.emplace_back(*op, std::move(childState));
-              lazyLoadableOpsMap.try_emplace(*op,
-                                             std::prev(lazyLoadableOps.end()));
+            if (parentReader->lazyLoading &&
+                (!parentReader->lazyOpsCallback ||
+                 !parentReader->lazyOpsCallback(*op))) {
+              auto *impl = const_cast<Impl *>(parentReader);
+              impl->lazyLoadableOps.emplace_back(*op, std::move(childState));
+              impl->lazyLoadableOpsMap.try_emplace(
+                  *op, std::prev(impl->lazyLoadableOps.end()));
               continue;
             }
           }
@@ -2247,7 +2232,7 @@ BytecodeReader::Impl::parseRegions(std::vector<RegionReadState> &regionStack,
 
           // If the op is isolated from above, push a new value scope.
           if (isIsolatedFromAbove)
-            regionReader.valueScopes.emplace_back();
+            valueScopes.emplace_back();
           return success();
         }
       }
@@ -2255,21 +2240,20 @@ BytecodeReader::Impl::parseRegions(std::vector<RegionReadState> &regionStack,
       // Move to the next block of the region.
       if (++readState.curBlock == readState.curRegion->end())
         break;
-      if (failed(regionReader.parseBlockHeader(reader, readState)))
+      if (failed(parseBlockHeader(reader, readState)))
         return failure();
     } while (true);
 
     // Reset the current block and any values reserved for this region.
     readState.curBlock = {};
-    regionReader.valueScopes.back().pop(readState);
+    valueScopes.back().pop(readState);
   }
 
   // When the regions have been fully parsed, pop them off of the read stack. If
   // the regions were isolated from above, we also pop the last value scope.
   if (readState.isIsolatedFromAbove) {
-    assert(!regionReader.valueScopes.empty() &&
-           "Expect a valueScope after reading region");
-    regionReader.valueScopes.pop_back();
+    assert(!valueScopes.empty() && "Expect a valueScope after reading region");
+    valueScopes.pop_back();
   }
   assert(!regionStack.empty() && "Expect a regionStack after reading region");
   regionStack.pop_back();
@@ -2323,13 +2307,12 @@ BytecodeReader::Impl::IsolatedRegionReader::parseOpWithoutRegions(
     // stored as an attribute. Otherwise the op must implement the bytecode
     // interface and control the serialization.
     if (wasRegistered) {
-      auto *impl = const_cast<BytecodeReader::Impl *>(parentReader);
-      DialectReader dialectReader(
-          impl->attrTypeReader, parentReader->stringReader,
-          parentReader->resourceReader, parentReader->dialectsMap, reader,
-          parentReader->version);
-      if (failed(impl->propertiesReader.read(parentReader->fileLoc,
-                                             dialectReader, &*opName, opState)))
+      DialectReader dialectReader(attrTypeReader, parentReader->stringReader,
+                                  parentReader->resourceReader,
+                                  parentReader->dialectsMap, reader,
+                                  parentReader->version);
+      if (failed(parentReader->propertiesReader.read(
+              parentReader->fileLoc, dialectReader, &*opName, opState)))
         return failure();
     } else {
       // If the operation wasn't registered when it was emitted, the properties
@@ -2422,7 +2405,8 @@ BytecodeReader::Impl::IsolatedRegionReader::parseOpWithoutRegions(
   return op;
 }
 
-LogicalResult BytecodeReader::Impl::parseRegion(RegionReadState &readState) {
+LogicalResult BytecodeReader::Impl::IsolatedRegionReader::parseRegion(
+    RegionReadState &readState) {
   EncodingReader &reader = *readState.reader;
 
   // Parse the number of blocks in the region.
@@ -2450,11 +2434,11 @@ LogicalResult BytecodeReader::Impl::parseRegion(RegionReadState &readState) {
   }
 
   // Prepare the current value scope for this region.
-  regionReader.valueScopes.back().push(readState);
+  valueScopes.back().push(readState);
 
   // Parse the entry block of the region.
   readState.curBlock = readState.curRegion->begin();
-  return regionReader.parseBlockHeader(reader, readState);
+  return parseBlockHeader(reader, readState);
 }
 
 LogicalResult BytecodeReader::Impl::IsolatedRegionReader::parseBlockHeader(
