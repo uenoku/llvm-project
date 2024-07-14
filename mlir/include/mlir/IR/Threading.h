@@ -78,6 +78,56 @@ LogicalResult failableParallelForEach(MLIRContext *context, IteratorT begin,
   return failure(processingFailed);
 }
 
+template <typename IteratorT, typename FuncT, typename WorkerT>
+LogicalResult failableParallelForEachWithWorker(MLIRContext *context,
+                                                IteratorT begin, IteratorT end,
+                                                FuncT &&func, WorkerT worker) {
+  unsigned numElements = static_cast<unsigned>(std::distance(begin, end));
+  if (numElements == 0)
+    return success();
+
+  // If multithreading is disabled or there is a small number of elements,
+  // process the elements directly on this thread.
+  if (!context->isMultithreadingEnabled() || numElements <= 1) {
+    for (; begin != end; ++begin)
+      if (failed(func(worker, *begin)))
+        return failure();
+    return success();
+  }
+
+  // Build a wrapper processing function that properly initializes a parallel
+  // diagnostic handler.
+  ParallelDiagnosticHandler handler(context);
+  std::atomic<unsigned> curIndex(0);
+  std::atomic<bool> processingFailed(false);
+  // Otherwise, process the elements in parallel.
+  llvm::ThreadPoolInterface &threadPool = context->getThreadPool();
+  llvm::ThreadPoolTaskGroup tasksGroup(threadPool);
+  size_t numActions = std::min(numElements, threadPool.getMaxConcurrency());
+
+  auto processFn = [&] {
+    WorkerT localWorker(worker);
+    while (!processingFailed) {
+      unsigned index = curIndex++;
+      if (index >= numElements)
+        break;
+      handler.setOrderIDForThread(index);
+      if (failed(func(localWorker, *std::next(begin, index))))
+        processingFailed = true;
+      handler.eraseOrderIDForThread();
+    }
+  };
+
+  for (unsigned i = 0; i < numActions; ++i) {
+    tasksGroup.async(processFn);
+  }
+  // If the current thread is a worker thread from the pool, then waiting for
+  // the task group allows the current thread to also participate in processing
+  // tasks from the group, which avoid any deadlock/starvation.
+  tasksGroup.wait();
+  return failure(processingFailed);
+}
+
 /// Invoke the given function on the elements in the provided range
 /// asynchronously. If the given function returns a failure when processing any
 /// of the elements, execution is stopped and a failure is returned from this

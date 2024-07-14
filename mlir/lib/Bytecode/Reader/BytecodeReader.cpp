@@ -1402,9 +1402,11 @@ private:
     regionStack.push_back(std::move(it->getSecond()->second));
     lazyLoadableOps.erase(it->getSecond());
     lazyLoadableOpsMap.erase(it);
+    std::vector<RegionReadState> isolatedRegions; // Keep this null.
 
     while (!regionStack.empty())
-      if (failed(regionReader.parseRegions(regionStack, regionStack.back())))
+      if (failed(regionReader.parseRegions(regionStack, regionStack.back(),
+                                           false, isolatedRegions)))
         return failure();
     return success();
   }
@@ -1571,13 +1573,13 @@ private:
 
   struct IsolatedRegionReader {
     IsolatedRegionReader(const mlir::BytecodeReader::Impl *parent)
-        : // Use the builtin unrealized conversion cast operation to represent
+        : opNames(parent->opNames),
+          // Use the builtin unrealized conversion cast operation to represent
           // forward references to values that aren't yet defined.
           forwardRefOpState(UnknownLoc::get(parent->config.getContext()),
                             "builtin.unrealized_conversion_cast", ValueRange(),
                             NoneType::get(parent->config.getContext())),
-          opNames(parent->opNames), attrTypeReader(parent->attrTypeReader),
-          parentReader(parent) {}
+          attrTypeReader(parent->attrTypeReader), parentReader(parent) {}
 
     SmallVector<BytecodeOperationName> opNames;
 
@@ -1589,7 +1591,8 @@ private:
 
     LogicalResult parseRegion(RegionReadState &readState);
     LogicalResult parseRegions(std::vector<RegionReadState> &regionStack,
-                               RegionReadState &readState);
+                               RegionReadState &readState, bool stop,
+                               std::vector<RegionReadState> &isolatedRegions);
     LogicalResult parseBlockHeader(EncodingReader &reader,
                                    RegionReadState &readState);
     LogicalResult parseBlockArguments(EncodingReader &reader, Block *block);
@@ -1664,7 +1667,7 @@ private:
     const mlir::BytecodeReader::Impl *parentReader;
   };
 
-  // IsolatedRegionReader regionReader;
+  SmallVector<std::unique_ptr<IsolatedRegionReader>> regionReaders;
 
   /// Reference to the input buffer.
   llvm::MemoryBufferRef buffer;
@@ -2119,14 +2122,15 @@ BytecodeReader::Impl::parseIRSection(ArrayRef<uint8_t> sectionData,
   EncodingReader reader(sectionData, fileLoc);
 
   // A stack of operation regions currently being read from the bytecode.
-  std::vector<RegionReadState> regionStack;
+  std::vector<RegionReadState> regionStack, isolatedRegions;
 
   // Parse the top-level block using a temporary module operation.
   OwningOpRef<ModuleOp> moduleOp = ModuleOp::create(fileLoc);
   regionStack.emplace_back(*moduleOp, &reader, /*isIsolatedFromAbove=*/true);
   regionStack.back().curBlocks.push_back(moduleOp->getBody());
   regionStack.back().curBlock = regionStack.back().curRegion->begin();
-  IsolatedRegionReader regionReader(this);
+  regionReaders.push_back(std::make_unique<IsolatedRegionReader>(this));
+  IsolatedRegionReader &regionReader = *regionReaders.back().get();
   if (failed(regionReader.parseBlockHeader(reader, regionStack.back())))
     return failure();
 
@@ -2135,8 +2139,10 @@ BytecodeReader::Impl::parseIRSection(ArrayRef<uint8_t> sectionData,
 
   // Iteratively parse regions until everything has been resolved.
   while (!regionStack.empty())
-    if (failed(regionReader.parseRegions(regionStack, regionStack.back())))
+    if (failed(regionReader.parseRegions(regionStack, regionStack.back(), true,
+                                         isolatedRegions)))
       return failure();
+
   if (!regionReader.forwardRefOps.empty()) {
     return reader.emitError(
         "not all forward unresolved forward operand references");
@@ -2146,6 +2152,31 @@ BytecodeReader::Impl::parseIRSection(ArrayRef<uint8_t> sectionData,
   if (failed(regionReader.processUseLists(*moduleOp)))
     return reader.emitError(
         "parsed use-list orders were invalid and could not be applied");
+
+  // Single
+  for (auto begin = std::make_move_iterator(isolatedRegions.begin()),
+            end = std::make_move_iterator(isolatedRegions.end());
+       begin != end; ++begin) {
+    std::vector<RegionReadState> localRegionStack, tmp;
+    localRegionStack.push_back(*begin);
+    regionReader.valueScopes.emplace_back();
+
+    // Iteratively parse regions until everything has been resolved.
+    while (!localRegionStack.empty())
+      if (failed(regionReader.parseRegions(localRegionStack, localRegionStack.back(),
+                                           false, tmp)))
+        return failure();
+
+    if (!regionReader.forwardRefOps.empty()) {
+      return reader.emitError(
+          "not all forward unresolved forward operand references");
+    }
+
+    // Sort use-lists according to what specified in bytecode.
+    if (failed(regionReader.processUseLists(*moduleOp)))
+      return reader.emitError(
+          "parsed use-list orders were invalid and could not be applied");
+  }
 
   // Resolve dialect version.
   for (const std::unique_ptr<BytecodeDialect> &byteCodeDialect : dialects) {
@@ -2171,7 +2202,9 @@ BytecodeReader::Impl::parseIRSection(ArrayRef<uint8_t> sectionData,
 }
 
 LogicalResult BytecodeReader::Impl::IsolatedRegionReader::parseRegions(
-    std::vector<RegionReadState> &regionStack, RegionReadState &readState) {
+    std::vector<RegionReadState> &regionStack, RegionReadState &readState,
+    bool stopAtIsolatedAbove,
+    std::vector<RegionReadState> &isolatedAboveRegions) {
   // Process regions, blocks, and operations until the end or if a nested
   // region is encountered. In this case we push a new state in regionStack and
   // return, the processing of the current region will resume afterward.
@@ -2231,6 +2264,9 @@ LogicalResult BytecodeReader::Impl::IsolatedRegionReader::parseRegions(
               impl->lazyLoadableOps.emplace_back(*op, std::move(childState));
               impl->lazyLoadableOpsMap.try_emplace(
                   *op, std::prev(impl->lazyLoadableOps.end()));
+              continue;
+            } else if (stopAtIsolatedAbove) {
+              isolatedAboveRegions.emplace_back(std::move(childState));
               continue;
             }
           }
