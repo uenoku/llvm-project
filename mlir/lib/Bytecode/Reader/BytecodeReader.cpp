@@ -1420,12 +1420,6 @@ private:
 
   LogicalResult parseDialectSection(ArrayRef<uint8_t> sectionData);
 
-  /// Parse an operation name reference using the given reader, and set the
-  /// `wasRegistered` flag that indicates if the bytecode was produced by a
-  /// context where opName was registered.
-  FailureOr<OperationName> parseOpName(EncodingReader &reader,
-                                       std::optional<bool> &wasRegistered);
-
   //===--------------------------------------------------------------------===//
   // Attribute/Type Section
 
@@ -1582,7 +1576,16 @@ private:
           forwardRefOpState(UnknownLoc::get(parent->config.getContext()),
                             "builtin.unrealized_conversion_cast", ValueRange(),
                             NoneType::get(parent->config.getContext())),
-          attrTypeReader(parent->attrTypeReader), parentReader(parent) {}
+          opNames(parent->opNames), attrTypeReader(parent->attrTypeReader),
+          parentReader(parent) {}
+
+    SmallVector<BytecodeOperationName> opNames;
+
+    /// Parse an operation name reference using the given reader, and set the
+    /// `wasRegistered` flag that indicates if the bytecode was produced by a
+    /// context where opName was registered.
+    FailureOr<OperationName> parseOpName(EncodingReader &reader,
+                                         std::optional<bool> &wasRegistered);
 
     LogicalResult parseRegion(RegionReadState &readState);
     LogicalResult parseRegions(std::vector<RegionReadState> &regionStack,
@@ -1887,8 +1890,8 @@ BytecodeReader::Impl::parseDialectSection(ArrayRef<uint8_t> sectionData) {
 }
 
 FailureOr<OperationName>
-BytecodeReader::Impl::parseOpName(EncodingReader &reader,
-                                  std::optional<bool> &wasRegistered) {
+BytecodeReader::Impl::IsolatedRegionReader::parseOpName(
+    EncodingReader &reader, std::optional<bool> &wasRegistered) {
   BytecodeOperationName *opName = nullptr;
   if (failed(parseEntry(reader, opNames, opName, "operation name")))
     return failure();
@@ -1901,15 +1904,18 @@ BytecodeReader::Impl::parseOpName(EncodingReader &reader,
     // format anymore but for now we'll be backward compatible. This can only
     // happen with unregistered dialects.
     if (opName->name.empty()) {
-      opName->opName.emplace(opName->dialect->name, getContext());
+      opName->opName.emplace(opName->dialect->name, parentReader->getContext());
     } else {
       // Load the dialect and its version.
-      DialectReader dialectReader(attrTypeReader, stringReader, resourceReader,
-                                  dialectsMap, reader, version);
-      if (failed(opName->dialect->load(dialectReader, getContext())))
+      DialectReader dialectReader(attrTypeReader, parentReader->stringReader,
+                                  parentReader->resourceReader,
+                                  parentReader->dialectsMap, reader,
+                                  parentReader->version);
+      if (failed(
+              opName->dialect->load(dialectReader, parentReader->getContext())))
         return failure();
       opName->opName.emplace((opName->dialect->name + "." + opName->name).str(),
-                             getContext());
+                             parentReader->getContext());
     }
   }
   return *opName->opName;
@@ -2266,9 +2272,7 @@ BytecodeReader::Impl::IsolatedRegionReader::parseOpWithoutRegions(
     bool &isIsolatedFromAbove) {
   // Parse the name of the operation.
   std::optional<bool> wasRegistered;
-  FailureOr<OperationName> opName =
-      const_cast<BytecodeReader::Impl *>(parentReader)
-          ->parseOpName(reader, wasRegistered);
+  FailureOr<OperationName> opName = parseOpName(reader, wasRegistered);
   if (failed(opName))
     return failure();
 
