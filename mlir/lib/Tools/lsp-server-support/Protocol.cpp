@@ -1041,3 +1041,117 @@ llvm::json::Value mlir::lsp::toJSON(const CodeAction &value) {
     codeAction["edit"] = *value.edit;
   return std::move(codeAction);
 }
+
+//===----------------------------------------------------------------------===//
+// CallHierarchyItem
+//===----------------------------------------------------------------------===//
+
+bool mlir::lsp::fromJSON(const llvm::json::Value &value,
+                         CallHierarchyItem &result, llvm::json::Path path) {
+  llvm::json::ObjectMapper o(value, path);
+  int kind;
+  if (!o || !o.map("kind", kind))
+    return false;
+  result.kind = static_cast<SymbolKind>(kind);
+  return o && o.map("name", result.name) && o.map("uri", result.uri) &&
+         o.map("range", result.range) &&
+         o.map("selectionRange", result.selectionRange) &&
+         mapOptOrNull(value, "detail", result.detail, path);
+}
+
+llvm::json::Value mlir::lsp::toJSON(const CallHierarchyItem &value) {
+  llvm::json::Object result{{"name", value.name},
+                            {"kind", static_cast<int>(value.kind)},
+                            {"uri", value.uri},
+                            {"range", value.range},
+                            {"selectionRange", value.selectionRange}};
+  mlir::lsp::Logger::info("CallHierarchyItem: {} {} {} {}", value.range.start.character, value.range.end.character, value.range.start.line, value.range.end.line);
+
+  if (!value.detail.empty())
+    result["detail"] = value.detail;
+
+  return std::move(result);
+}
+
+//===----------------------------------------------------------------------===//
+// CallHierarchyIncomingCall
+//===----------------------------------------------------------------------===//
+
+bool mlir::lsp::fromJSON(const llvm::json::Value &value,
+                         CallHierarchyIncomingCall &result,
+                         llvm::json::Path path) {
+  llvm::json::ObjectMapper o(value, path);
+  return o && o.map("from", result.from) &&
+         o.map("fromRanges", result.fromRanges);
+}
+
+llvm::json::Value mlir::lsp::toJSON(const CallHierarchyIncomingCall &value) {
+  return llvm::json::Object{{"from", value.from},
+                            {"fromRanges", value.fromRanges}};
+}
+
+//===----------------------------------------------------------------------===//
+// CallHierarchyIncomingCallsParams
+//===----------------------------------------------------------------------===//
+
+llvm::json::Value
+mlir::lsp::toJSON(const CallHierarchyIncomingCallsParams &value) {
+  return llvm::json::Object{{"item", toJSON(value.item)}};
+}
+
+bool mlir::lsp::fromJSON(const llvm::json::Value &value,
+                         CallHierarchyIncomingCallsParams &result,
+                         llvm::json::Path path) {
+  llvm::json::ObjectMapper o(value, path);
+  return o && o.map("item", result.item);
+}
+//===----------------------------------------------------------------------===//
+// CallHierarchyOutgoingCallsParams
+//===----------------------------------------------------------------------===//
+
+llvm::json::Value
+mlir::lsp::toJSON(const CallHierarchyOutgoingCallsParams &value) {
+  return llvm::json::Object{{"item", toJSON(value.item)}};
+}
+
+bool mlir::lsp::fromJSON(const llvm::json::Value &value,
+                         CallHierarchyOutgoingCallsParams &result,
+                         llvm::json::Path path) {
+  llvm::json::ObjectMapper o(value, path);
+  return o && o.map("item", result.item);
+}
+
+//===----------------------------------------------------------------------===//
+// CallHierarchyOutgoingCall
+//===----------------------------------------------------------------------===//
+
+bool mlir::lsp::fromJSON(const llvm::json::Value &value,
+                         CallHierarchyOutgoingCall &result,
+                         llvm::json::Path path) {
+  llvm::json::ObjectMapper o(value, path);
+  return o && o.map("to", result.to) && o.map("fromRanges", result.fromRanges);
+}
+
+llvm::json::Value mlir::lsp::toJSON(const CallHierarchyOutgoingCall &value) {
+  return llvm::json::Object{{"to", value.to}, {"fromRanges", value.fromRanges}};
+}
+
+//===----------------------------------------------------------------------===//
+// CallHierarchyPrepareParams
+//===----------------------------------------------------------------------===//
+
+llvm::json::Value mlir::lsp::toJSON(const CallHierarchyPrepareParams &value) {
+  return llvm::json::Object{{"textDocument", toJSON(value.textDocument)},
+                            {"position", toJSON(value.position)}};
+}
+
+bool mlir::lsp::fromJSON(const llvm::json::Value &value,
+                         CallHierarchyPrepareParams &result,
+                         llvm::json::Path path) {
+  llvm::json::ObjectMapper o(value, path);
+  if (!o)
+    return false;
+
+  return o && o.map("textDocument", result.textDocument) &&
+         o.map("position", result.position);
+}

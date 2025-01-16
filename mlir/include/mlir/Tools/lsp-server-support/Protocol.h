@@ -1234,6 +1234,116 @@ struct CodeAction {
 /// Add support for JSON serialization.
 llvm::json::Value toJSON(const CodeAction &);
 
+//===----------------------------------------------------------------------===//
+// CallHierarchy
+//===----------------------------------------------------------------------===//
+
+/// Parameters for the document link request.
+struct CallHierarchyItem {
+  /**
+   * The name of this item.
+   */
+  std::string name;
+
+  /**
+   * The kind of this item.
+   */
+  SymbolKind kind;
+
+  /**
+   * Tags for this item.
+   */
+  // std::optional<std::vector<std::string>> tags;
+
+  /**
+   * More detail for this item, e.g. the signature of a function.
+   */
+  std::string detail;
+
+  /**
+   * The resource identifier of this item.
+   */
+  URIForFile uri;
+
+  /**
+   * The range enclosing this symbol not including leading/trailing whitespace
+   * but everything else, e.g. comments and code.
+   */
+  Range range;
+
+  /**
+   * The range that should be selected and revealed when this symbol is being
+   * picked, e.g. the name of a function. Must be contained by the
+   * [`range`](#CallHierarchyItem.range).
+   */
+  // selectionRange: Range;
+  Range selectionRange;
+
+  /**
+   * A data entry field that is preserved between a call hierarchy prepare and
+   * incoming calls or outgoing calls requests.
+   */
+  // std::optional<std::string> data;
+};
+
+struct CallHierarchyPrepareParams {
+  TextDocumentIdentifier textDocument;
+  Position position;
+  // std::string workDoneToken;
+};
+
+/// Add support for JSON serialization.
+bool fromJSON(const llvm::json::Value &value, CallHierarchyPrepareParams &result,
+              llvm::json::Path path);
+llvm::json::Value toJSON(const CallHierarchyPrepareParams &value);
+
+/// Add support for JSON serialization.
+bool fromJSON(const llvm::json::Value &value, CallHierarchyItem &result,
+              llvm::json::Path path);
+llvm::json::Value toJSON(const CallHierarchyItem &value);
+
+struct CallHierarchyIncomingCall {
+  //  The item that makes the call.
+  CallHierarchyItem from;
+
+  //  The ranges at which the calls appear. This is relative to the caller
+  // denoted by
+  std::vector<Range> fromRanges;
+};
+
+bool fromJSON(const llvm::json::Value &value, CallHierarchyIncomingCall &result,
+              llvm::json::Path path);
+llvm::json::Value toJSON(const CallHierarchyIncomingCall &value);
+
+struct CallHierarchyIncomingCallsParams {
+  CallHierarchyItem item;
+};
+
+llvm::json::Value toJSON(const CallHierarchyIncomingCallsParams &value);
+bool fromJSON(const llvm::json::Value &value,
+              CallHierarchyIncomingCallsParams &result, llvm::json::Path path);
+
+struct CallHierarchyOutgoingCallsParams {
+  CallHierarchyItem item;
+};
+
+llvm::json::Value toJSON(const CallHierarchyOutgoingCallsParams &value);
+bool fromJSON(const llvm::json::Value &value,
+              CallHierarchyOutgoingCallsParams &result, llvm::json::Path path);
+
+struct CallHierarchyOutgoingCall {
+  //  The item that is called.
+  CallHierarchyItem to;
+
+  //  The ranges at which the calls appear. This is relative to the caller
+  // denoted by
+  std::vector<Range> fromRanges;
+};
+
+/// Add support for JSON serialization.
+bool fromJSON(const llvm::json::Value &value, CallHierarchyOutgoingCall &result,
+              llvm::json::Path path);
+llvm::json::Value toJSON(const CallHierarchyOutgoingCall &value);
 } // namespace lsp
 } // namespace mlir
 
