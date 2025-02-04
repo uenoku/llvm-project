@@ -738,6 +738,24 @@ struct PublishDiagnosticsParams {
 llvm::json::Value toJSON(const PublishDiagnosticsParams &params);
 
 //===----------------------------------------------------------------------===//
+// RefreshInlayHintsParams
+//===----------------------------------------------------------------------===//
+
+struct RefreshInlayHintsParams {
+  RefreshInlayHintsParams() = default;
+};
+
+/// Add support for JSON serialization.
+llvm::json::Value toJSON(const RefreshInlayHintsParams &params);
+struct RefreshInlayHintsResult {
+  RefreshInlayHintsResult() = default;
+};
+
+/// Add support for JSON serialization.
+bool fromJSON(const llvm::json::Value &value, RefreshInlayHintsResult &result,
+              llvm::json::Path path);
+
+//===----------------------------------------------------------------------===//
 // TextEdit
 //===----------------------------------------------------------------------===//
 

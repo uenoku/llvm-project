@@ -707,6 +707,24 @@ llvm::json::Value mlir::lsp::toJSON(const PublishDiagnosticsParams &params) {
 }
 
 //===----------------------------------------------------------------------===//
+// RefreshInlayHintsParams
+//===----------------------------------------------------------------------===//
+
+llvm::json::Value mlir::lsp::toJSON(const RefreshInlayHintsParams &params) {
+  return llvm::json::Object{};
+}
+
+//===----------------------------------------------------------------------===//
+// RefreshInlayHintsResult
+//===----------------------------------------------------------------------===//
+
+bool mlir::lsp::fromJSON(const llvm::json::Value &value,
+                         RefreshInlayHintsResult &result,
+                         llvm::json::Path path) {
+  return true;
+}
+
+//===----------------------------------------------------------------------===//
 // TextEdit
 //===----------------------------------------------------------------------===//
 
@@ -1065,7 +1083,9 @@ llvm::json::Value mlir::lsp::toJSON(const CallHierarchyItem &value) {
                             {"uri", value.uri},
                             {"range", value.range},
                             {"selectionRange", value.selectionRange}};
-  mlir::lsp::Logger::info("CallHierarchyItem: {} {} {} {}", value.range.start.character, value.range.end.character, value.range.start.line, value.range.end.line);
+  mlir::lsp::Logger::info(
+      "CallHierarchyItem: {} {} {} {}", value.range.start.character,
+      value.range.end.character, value.range.start.line, value.range.end.line);
 
   if (!value.detail.empty())
     result["detail"] = value.detail;
