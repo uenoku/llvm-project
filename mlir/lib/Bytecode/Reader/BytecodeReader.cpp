@@ -951,7 +951,9 @@ public:
   }
 
   /// Add an index to the deferred worklist for re-parsing.
-  void addDeferredParsing(uint64_t index) { deferredWorklist.push_back(index); }
+  void addDeferredParsing(uint64_t index, uint64_t isType) {
+    deferredWorklist.push_back({index, isType});
+  }
 
   /// Whether currently resolving.
   bool isResolving() const { return resolving; }
@@ -1008,7 +1010,7 @@ private:
 
   /// Worklist for deferred attribute/type parsing. This is used to handle
   /// deeply nested structures like CallSiteLoc iteratively.
-  std::vector<std::pair<uint64_t, bool>> deferredWorklist;
+  std::vector<std::pair<uint64_t, uint64_t>> deferredWorklist;
 
   /// Flag indicating if we are currently resolving an attribute or type.
   bool resolving = false;
@@ -1085,7 +1087,7 @@ public:
         result = attr;
         return success();
       }
-      attrTypeReader.addDeferredParsing(index);
+      attrTypeReader.addDeferredParsing(index, /*isType=*/0);
       return failure();
     }
     return attrTypeReader.readAttribute(index, result, depth + 1);
@@ -1114,7 +1116,7 @@ public:
         result = type;
         return success();
       }
-      attrTypeReader.addDeferredParsing(index);
+      attrTypeReader.addDeferredParsing(index, /*isType=*/1);
       return failure();
     }
     return attrTypeReader.readType(index, result, depth + 1);
@@ -1381,12 +1383,14 @@ T AttrTypeReader::resolveEntry(SmallVectorImpl<Entry<T>> &entries,
   // - Pop from front to process
   // - Push new dependencies to front (depth-first)
   // - Move failed entries to back (retry after dependencies)
-  std::deque<std::pair<uint64_t, bool>> worklist;
-  llvm::DenseSet<std::pair<uint64_t, bool>> inWorklist;
+  std::deque<std::pair<uint64_t, uint64_t>> worklist;
+  llvm::DenseSet<std::pair<uint64_t, uint64_t>> inWorklist;
 
   // Add the original index and any dependencies from the fast path attempt.
-  worklist.push_back({index, entryType == "type"});
-  inWorklist.insert({index, entryType == "type"});
+
+  uint64_t isTypeEntry = std::is_same_v<T, Type>;
+  worklist.push_back({index, isTypeEntry});
+  inWorklist.insert({index, isTypeEntry});
   for (auto [idx, isType] : llvm::reverse(deferredWorklist)) {
     if (inWorklist.insert({idx, isType}).second)
       worklist.push_front({idx, isType});
@@ -1399,12 +1403,23 @@ T AttrTypeReader::resolveEntry(SmallVectorImpl<Entry<T>> &entries,
     // Clear the deferred worklist before parsing to capture any new entries.
     deferredWorklist.clear();
 
-    T result;
-    if (succeeded(readEntry(entries, currentIndex, result,
-                            isType ? "type" : "attribute", depth))) {
-      std::pair<uint64_t, bool> key{currentIndex, isType};
-      inWorklist.erase(key);
-      continue;
+    if (isType) {
+      Type result;
+      if (succeeded(readEntry(types, currentIndex, result, "Type", depth))) {
+        std::pair<uint64_t, uint64_t> key(static_cast<uint64_t>(currentIndex),
+                                          isType);
+        inWorklist.erase(key);
+        continue;
+      }
+    } else {
+      Attribute result;
+      if (succeeded(readEntry(attributes, currentIndex, result, "Attribute",
+                              depth))) {
+        std::pair<uint64_t, uint64_t> key(static_cast<uint64_t>(currentIndex),
+                                          isType);
+        inWorklist.erase(key);
+        continue;
+      }
     }
 
     if (deferredWorklist.empty()) {
