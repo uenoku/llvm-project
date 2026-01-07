@@ -32,6 +32,7 @@
 #include <memory>
 #include <numeric>
 #include <optional>
+#include <type_traits>
 
 #define DEBUG_TYPE "mlir-bytecode-reader"
 
@@ -1007,7 +1008,7 @@ private:
 
   /// Worklist for deferred attribute/type parsing. This is used to handle
   /// deeply nested structures like CallSiteLoc iteratively.
-  std::vector<uint64_t> deferredWorklist;
+  std::vector<std::pair<uint64_t, bool>> deferredWorklist;
 
   /// Flag indicating if we are currently resolving an attribute or type.
   bool resolving = false;
@@ -1380,27 +1381,29 @@ T AttrTypeReader::resolveEntry(SmallVectorImpl<Entry<T>> &entries,
   // - Pop from front to process
   // - Push new dependencies to front (depth-first)
   // - Move failed entries to back (retry after dependencies)
-  std::deque<size_t> worklist;
-  llvm::DenseSet<size_t> inWorklist;
+  std::deque<std::pair<uint64_t, bool>> worklist;
+  llvm::DenseSet<std::pair<uint64_t, bool>> inWorklist;
 
   // Add the original index and any dependencies from the fast path attempt.
-  worklist.push_back(index);
-  inWorklist.insert(index);
-  for (uint64_t idx : llvm::reverse(deferredWorklist)) {
-    if (inWorklist.insert(idx).second)
-      worklist.push_front(idx);
+  worklist.push_back({index, entryType == "type"});
+  inWorklist.insert({index, entryType == "type"});
+  for (auto [idx, isType] : llvm::reverse(deferredWorklist)) {
+    if (inWorklist.insert({idx, isType}).second)
+      worklist.push_front({idx, isType});
   }
 
   while (!worklist.empty()) {
-    size_t currentIndex = worklist.front();
+    auto [currentIndex, isType] = worklist.front();
     worklist.pop_front();
 
     // Clear the deferred worklist before parsing to capture any new entries.
     deferredWorklist.clear();
 
     T result;
-    if (succeeded(readEntry(entries, currentIndex, result, entryType, depth))) {
-      inWorklist.erase(currentIndex);
+    if (succeeded(readEntry(entries, currentIndex, result,
+                            isType ? "type" : "attribute", depth))) {
+      std::pair<uint64_t, bool> key{currentIndex, isType};
+      inWorklist.erase(key);
       continue;
     }
 
@@ -1410,12 +1413,12 @@ T AttrTypeReader::resolveEntry(SmallVectorImpl<Entry<T>> &entries,
     }
 
     // Move this entry to the back to retry after dependencies.
-    worklist.push_back(currentIndex);
+    worklist.push_back({currentIndex, isType});
 
     // Add dependencies to the front (in reverse so they maintain order).
-    for (uint64_t idx : llvm::reverse(deferredWorklist)) {
-      if (inWorklist.insert(idx).second)
-        worklist.push_front(idx);
+    for (auto [idx, isType] : llvm::reverse(deferredWorklist)) {
+      if (inWorklist.insert({idx, isType}).second)
+        worklist.push_front({idx, isType});
     }
     deferredWorklist.clear();
   }
@@ -1763,7 +1766,7 @@ private:
     UseListOrderStorage(bool isIndexPairEncoding,
                         SmallVector<unsigned, 4> &&indices)
         : indices(std::move(indices)),
-          isIndexPairEncoding(isIndexPairEncoding) {};
+          isIndexPairEncoding(isIndexPairEncoding){};
     /// The vector containing the information required to reorder the
     /// use-list of a value.
     SmallVector<unsigned, 4> indices;
