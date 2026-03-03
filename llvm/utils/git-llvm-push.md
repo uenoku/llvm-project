@@ -118,6 +118,7 @@ To simplify usage, the script attempts to auto-detect certain values if they are
 
 | Flag                | Description                                                                          | Default            |
 | ------------------- | ------------------------------------------------------------------------------------ | ------------------ |
+| `--repo`            | GitHub repository in the format 'owner/repo'.                                        | `llvm/llvm-project`|
 | `--base`            | The base branch to target with the pull requests.                                    | `main`             |
 | `--remote`          | The remote for your personal fork to push temporary branches to.                     | `origin`           |
 | `--upstream-remote` | The remote for the upstream repository to create pull requests against.              | `upstream`         |

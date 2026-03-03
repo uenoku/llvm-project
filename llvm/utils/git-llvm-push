@@ -42,6 +42,7 @@ class PRAutomatorConfig:
 
     user_login: str
     token: str
+    repo: str
     base_branch: str
     upstream_remote: str
     prefix: str
@@ -112,8 +113,9 @@ class CommandRunner:
 class GitHubAPI:
     """A wrapper for the GitHub API."""
 
-    def __init__(self, runner: CommandRunner, token: str):
+    def __init__(self, runner: CommandRunner, token: str, repo: str):
         self.runner = runner
+        self.repo = repo
         self.headers = {
             "Authorization": f"token {token}",
             "Accept": "application/vnd.github.v3+json",
@@ -205,18 +207,18 @@ class GitHubAPI:
             "draft": draft,
         }
         response_data = self._request_and_parse_json(
-            "POST", f"/repos/{LLVM_REPO}/pulls", json_payload=data
+            "POST", f"/repos/{self.repo}/pulls", json_payload=data
         )
         self.runner.print(f"Pull request created: {response_data.get("html_url")}")
         return response_data.get("number")
 
     def get_repo_settings(self) -> dict:
-        return self._request_and_parse_json("GET", f"/repos/{LLVM_REPO}")
+        return self._request_and_parse_json("GET", f"/repos/{self.repo}")
 
     def _get_pr_details(self, pr_number: str) -> dict:
         """Fetches the JSON details for a given pull request number."""
         return self._request_and_parse_json(
-            "GET", f"/repos/{LLVM_REPO}/pulls/{pr_number}"
+            "GET", f"/repos/{self.repo}/pulls/{pr_number}"
         )
 
     def add_labels(
@@ -231,7 +233,7 @@ class GitHubAPI:
         self.runner.print(f"Setting labels for #{pr_number}: {' '.join(labels)}")
 
         self._request_and_parse_json(
-            "POST", f"/repos/{LLVM_REPO}/issues/{pr_number}/labels",
+            "POST", f"/repos/{self.repo}/issues/{pr_number}/labels",
             json_payload={"labels": labels},
         )
 
@@ -240,7 +242,7 @@ class GitHubAPI:
         try:
             self._request_and_parse_json(
                 "PUT",
-                f"/repos/{LLVM_REPO}/pulls/{pr_number}/merge",
+                f"/repos/{self.repo}/pulls/{pr_number}/merge",
                 json_payload={"merge_method": "squash"},
             )
             return True
@@ -292,7 +294,7 @@ class GitHubAPI:
         }
         self._request_no_content(
             "PUT",
-            f"/repos/{LLVM_REPO}/pulls/{pr_number}/auto-merge",
+            f"/repos/{self.repo}/pulls/{pr_number}/auto-merge",
             json_payload=data,
         )
         self.runner.print("Auto-merge enabled.")
@@ -308,7 +310,7 @@ class GitHubAPI:
             return
         try:
             self._request_no_content(
-                "DELETE", f"/repos/{LLVM_REPO}/git/refs/heads/{branch_name}"
+                "DELETE", f"/repos/{self.repo}/git/refs/heads/{branch_name}"
             )
         except urllib.error.HTTPError as e:
             if e.code == 422:
@@ -586,6 +588,11 @@ def main() -> None:
         raise LlvmPrError(f"{LLVM_GITHUB_TOKEN_VAR} environment variable not set.")
 
     parser.add_argument(
+        "--repo",
+        default=LLVM_REPO,
+        help=f"GitHub repository in the format 'owner/repo' (default: {LLVM_REPO})",
+    )
+    parser.add_argument(
         "--base",
         default=BASE_BRANCH,
         help=f"Base branch to target (default: {BASE_BRANCH})",
@@ -649,7 +656,7 @@ def main() -> None:
     )
     check_prerequisites(command_runner)
 
-    github_api = GitHubAPI(command_runner, token)
+    github_api = GitHubAPI(command_runner, token, args.repo)
     if not args.login:
         try:
             args.login = github_api.get_user_login()
@@ -666,6 +673,7 @@ def main() -> None:
         config = PRAutomatorConfig(
             user_login=args.login,
             token=token,
+            repo=args.repo,
             base_branch=args.base,
             upstream_remote=args.upstream_remote,
             prefix=args.prefix,
