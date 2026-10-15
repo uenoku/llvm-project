@@ -52,8 +52,12 @@ public:
   /// of the constant. Returns false if an existing constant for `op` already
   /// exists in the folder, in which case `op` is replaced and erased.
   /// Otherwise, returns true and `op` is inserted into the folder (and
-  /// hoisted if necessary).
-  bool insertKnownConstant(Operation *op, Attribute constValue = {});
+  /// hoisted if necessary). If provided, `changed` is set to true if the IR was
+  /// modified, including when `op` was hoisted without being replaced.
+  /// Otherwise, `changed` is left untouched, preserving changes from previous
+  /// calls.
+  bool insertKnownConstant(Operation *op, Attribute constValue = {},
+                           bool *changed = nullptr);
 
   /// Notifies that the given constant `op` should be remove from this
   /// OperationFolder's internal bookkeeping.

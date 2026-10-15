@@ -110,7 +110,8 @@ LogicalResult OperationFolder::tryToFold(Operation *op, bool *inPlaceUpdate,
   return success();
 }
 
-bool OperationFolder::insertKnownConstant(Operation *op, Attribute constValue) {
+bool OperationFolder::insertKnownConstant(Operation *op, Attribute constValue,
+                                          bool *changed) {
   Block *opBlock = op->getBlock();
 
   // If this is a constant we unique'd, we don't need to insert, but we can
@@ -119,6 +120,8 @@ bool OperationFolder::insertKnownConstant(Operation *op, Attribute constValue) {
     if (&opBlock->front() != op && !isFolderOwnedConstant(op->getPrevNode())) {
       op->moveBefore(&opBlock->front());
       op->setLoc(erasedFoldedLocation);
+      if (changed)
+        *changed = true;
     }
     return true;
   }
@@ -149,6 +152,8 @@ bool OperationFolder::insertKnownConstant(Operation *op, Attribute constValue) {
     notifyRemoval(op);
     rewriter.replaceOp(op, folderConstOp->getResults());
     folderConstOp->setLoc(erasedFoldedLocation);
+    if (changed)
+      *changed = true;
     return false;
   }
 
@@ -161,9 +166,13 @@ bool OperationFolder::insertKnownConstant(Operation *op, Attribute constValue) {
   if (opBlock != insertBlock) {
     op->moveBefore(&insertBlock->front());
     op->setLoc(erasedFoldedLocation);
+    if (changed)
+      *changed = true;
   } else if (&insertBlock->front() != op &&
              !isFolderOwnedConstant(op->getPrevNode())) {
     op->moveBefore(&insertBlock->front());
+    if (changed)
+      *changed = true;
   }
 
   folderConstOp = op;

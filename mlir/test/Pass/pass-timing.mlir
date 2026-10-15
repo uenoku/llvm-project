@@ -6,6 +6,9 @@
 // RUN: mlir-opt %s -mlir-disable-threading=false -verify-each=true -pass-pipeline='builtin.module(func.func(cse,canonicalize,cse))' -mlir-timing -mlir-timing-display=tree 2>&1 | FileCheck -check-prefix=MT_PIPELINE %s
 // RUN: mlir-opt %s -mlir-disable-threading=true -verify-each=false -test-pm-nested-pipeline -mlir-timing -mlir-timing-display=tree 2>&1 | FileCheck -check-prefix=NESTED_PIPELINE %s
 
+// Canonicalization is a no-op here, so the second CSE reuses the dominance
+// analysis computed by the first CSE.
+
 // LIST: Execution time report
 // LIST: Total Execution Time:
 // LIST: Name

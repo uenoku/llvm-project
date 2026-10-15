@@ -173,6 +173,31 @@ protected:
 };
 #endif // MLIR_ENABLE_EXPENSIVE_PATTERN_API_CHECKS
 
+#ifdef EXPENSIVE_CHECKS
+/// Check that the driver does not report unchanged IR when it actually changed.
+/// Unlike the pattern API checks, this covers the entire greedy rewrite,
+/// including constant hoisting, CSE and region simplification.
+struct GreedyRewriteChangeCheck {
+  explicit GreedyRewriteChangeCheck(Region *scope)
+      : topLevel(scope ? scope->getParentOp() : nullptr) {
+    if (topLevel)
+      before.emplace(topLevel);
+  }
+
+  void check(bool changed) const {
+    // A rewrite can change the IR and subsequently restore it, so only check
+    // that reporting no change implies that the finger print is unchanged.
+    if (!changed && topLevel && *before != OperationFingerPrint(topLevel))
+      llvm::report_fatal_error(
+          "greedy pattern rewriter changed IR but did not report a change");
+  }
+
+private:
+  Operation *topLevel;
+  std::optional<OperationFingerPrint> before;
+};
+#endif // EXPENSIVE_CHECKS
+
 #ifndef NDEBUG
 static Operation *getDumpRootOp(Operation *op) {
   // Dump the parent op so that materialized constants are visible. If the op
@@ -840,7 +865,11 @@ private:
 } // namespace
 
 LogicalResult RegionPatternRewriteDriver::simplify(bool *changed) && {
+#ifdef EXPENSIVE_CHECKS
+  GreedyRewriteChangeCheck rewriteCheck(config.getScope());
+#endif // EXPENSIVE_CHECKS
   bool continueRewrites = false;
+  bool anyChanged = false;
   int64_t iteration = 0;
   MLIRContext *ctx = rewriter.getContext();
   do {
@@ -849,7 +878,13 @@ LogicalResult RegionPatternRewriteDriver::simplify(bool *changed) && {
         config.getMaxIterations() != GreedyRewriteConfig::kNoLimit)
       break;
 
-    // New iteration: start with an empty worklist.
+#ifdef EXPENSIVE_CHECKS
+    GreedyRewriteChangeCheck iterationCheck(config.getScope());
+#endif // EXPENSIVE_CHECKS
+
+    // New iteration: start with an empty worklist. Track changes made while
+    // populating the worklist as well as changes made while processing it.
+    continueRewrites = false;
     worklist.clear();
 
     // `OperationFolder` CSE's constant ops (and may move them into parents
@@ -859,10 +894,9 @@ LogicalResult RegionPatternRewriteDriver::simplify(bool *changed) && {
       // Check for existing constants when populating the worklist. This avoids
       // accidentally reversing the constant order during processing.
       Attribute constValue;
-      if (matchPattern(op, m_Constant(&constValue)))
-        if (!folder.insertKnownConstant(op, constValue))
-          return true;
-      return false;
+      if (!matchPattern(op, m_Constant(&constValue)))
+        return false;
+      return !folder.insertKnownConstant(op, constValue, &continueRewrites);
     };
 
     if (!config.getUseTopDownTraversal()) {
@@ -887,8 +921,6 @@ LogicalResult RegionPatternRewriteDriver::simplify(bool *changed) && {
 
     ctx->executeAction<GreedyPatternRewriteIteration>(
         [&] {
-          continueRewrites = false;
-
           // Erase unreachable blocks
           // Operations like:
           //   %add = arith.addi %add, %add : i64
@@ -921,10 +953,17 @@ LogicalResult RegionPatternRewriteDriver::simplify(bool *changed) && {
           }
         },
         {&region}, iteration);
+#ifdef EXPENSIVE_CHECKS
+    iterationCheck.check(continueRewrites);
+#endif // EXPENSIVE_CHECKS
+    anyChanged |= continueRewrites;
   } while (continueRewrites);
 
+#ifdef EXPENSIVE_CHECKS
+  rewriteCheck.check(anyChanged);
+#endif // EXPENSIVE_CHECKS
   if (changed)
-    *changed = iteration > 1;
+    *changed = anyChanged;
 
   // Whether the rewrite converges, i.e. wasn't changed in the last iteration.
   return success(!continueRewrites);
@@ -1007,12 +1046,18 @@ MultiOpPatternRewriteDriver::MultiOpPatternRewriteDriver(
 
 LogicalResult MultiOpPatternRewriteDriver::simplify(ArrayRef<Operation *> ops,
                                                     bool *changed) && {
+#ifdef EXPENSIVE_CHECKS
+  GreedyRewriteChangeCheck rewriteCheck(config.getScope());
+#endif // EXPENSIVE_CHECKS
   // Populate the initial worklist.
   for (Operation *op : ops)
     addSingleOpToWorklist(op);
 
   // Process ops on the worklist.
   bool result = processWorklist();
+#ifdef EXPENSIVE_CHECKS
+  rewriteCheck.check(result);
+#endif // EXPENSIVE_CHECKS
   if (changed)
     *changed = result;
 
