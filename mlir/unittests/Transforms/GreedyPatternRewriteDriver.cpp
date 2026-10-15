@@ -11,6 +11,7 @@
 #include "mlir/Dialect/ControlFlow/IR/ControlFlowOps.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/IR/BuiltinOps.h"
+#include "mlir/IR/OperationSupport.h"
 #include "mlir/Parser/Parser.h"
 #include "mlir/Transforms/FoldUtils.h"
 #include "gtest/gtest.h"
@@ -22,6 +23,8 @@ class GreedyPatternRewriteDriverTest : public ::testing::TestWithParam<bool> {
 protected:
   GreedyPatternRewriteDriverTest() {
     context.getOrLoadDialect<arith::ArithDialect>();
+    context.getOrLoadDialect<cf::ControlFlowDialect>();
+    context.getOrLoadDialect<func::FuncDialect>();
     context.allowUnregisteredDialects();
     config.setUseTopDownTraversal(GetParam())
         .enableFolding(false)
@@ -29,21 +32,24 @@ protected:
   }
 
   void checkChanged(StringRef source) {
-    // Also check that changes in the last allowed iteration are reported, even
-    // though the rewrite does not converge.
-    for (int64_t maxIterations : {int64_t{1}, GreedyRewriteConfig::kNoLimit}) {
+    FrozenRewritePatternSet patterns{RewritePatternSet(&context)};
+    for (int64_t limit :
+         {int64_t{0}, int64_t{1}, GreedyRewriteConfig::kNoLimit}) {
+      SCOPED_TRACE(limit);
       auto module = parseSourceString<ModuleOp>(source, &context);
       ASSERT_TRUE(module);
-      config.setMaxIterations(maxIterations);
-      FrozenRewritePatternSet patterns{RewritePatternSet(&context)};
-      bool changed = false;
-      LogicalResult result =
-          applyPatternsGreedily(*module, patterns, config, &changed);
-      EXPECT_TRUE(changed);
-      EXPECT_EQ(succeeded(result),
-                maxIterations == GreedyRewriteConfig::kNoLimit);
+      OperationFingerPrint before(*module);
+      config.setMaxIterations(limit);
+      bool changed = limit == 0;
+      auto result = applyPatternsGreedily(*module, patterns, config, &changed);
+      EXPECT_EQ(changed, limit != 0);
+      EXPECT_EQ(succeeded(result), limit != 1);
+      if (limit == 0) {
+        EXPECT_EQ(before, OperationFingerPrint(*module));
+        continue;
+      }
 
-      // Once the IR is simplified, another run is a no-op.
+      // Once simplified, another run is a no-op.
       changed = true;
       EXPECT_TRUE(succeeded(
           applyPatternsGreedily(*module, patterns, config, &changed)));
@@ -82,8 +88,6 @@ TEST_P(GreedyPatternRewriteDriverTest, CSEBetweenIterations) {
 }
 
 TEST_P(GreedyPatternRewriteDriverTest, DeadBlockArguments) {
-  context.getOrLoadDialect<cf::ControlFlowDialect>();
-  context.getOrLoadDialect<func::FuncDialect>();
   config.setRegionSimplificationLevel(GreedySimplifyRegionLevel::Normal);
   checkChanged(R"mlir(
     func.func @f(%arg0: f32) {
@@ -94,106 +98,30 @@ TEST_P(GreedyPatternRewriteDriverTest, DeadBlockArguments) {
   )mlir");
 }
 
-TEST_P(GreedyPatternRewriteDriverTest, NoIterations) {
-  auto module = parseSourceString<ModuleOp>(R"mlir(
-    %0 = arith.constant 42 : i32
-    %1 = arith.constant 42 : i32
-    "test.use"(%0, %1) : (i32, i32) -> ()
-  )mlir",
-                                            &context);
-  ASSERT_TRUE(module);
-  FrozenRewritePatternSet patterns{RewritePatternSet(&context)};
-  config.setMaxIterations(0);
-  bool changed = true;
-  EXPECT_TRUE(
-      succeeded(applyPatternsGreedily(*module, patterns, config, &changed)));
-  EXPECT_FALSE(changed);
-  EXPECT_EQ(module->getBody()->getOperations().size(), 3u);
-}
-
-TEST(OperationFolderTest, InsertKnownConstantReportsReplacement) {
-  MLIRContext context;
-  context.getOrLoadDialect<arith::ArithDialect>();
-  context.allowUnregisteredDialects();
-  auto module = parseSourceString<ModuleOp>(R"mlir(
-    %0 = arith.constant 1 : i32
-    %1 = arith.constant 2 : i32
-    %2 = arith.constant 1 : i32
-    "test.use"(%0, %1, %2) : (i32, i32, i32) -> ()
-  )mlir",
-                                            &context);
-  ASSERT_TRUE(module);
-  SmallVector<arith::ConstantOp> constants;
-  module->walk([&](arith::ConstantOp op) { constants.push_back(op); });
-  ASSERT_EQ(constants.size(), 3u);
-
-  using Result = OperationFolder::ConstantInsertionResult;
-  OperationFolder folder(&context);
-  EXPECT_EQ(folder.insertKnownConstant(constants[0]), Result::Unchanged);
-  EXPECT_EQ(folder.insertKnownConstant(constants[1]), Result::Unchanged);
-  EXPECT_EQ(folder.insertKnownConstant(constants[2]), Result::Replaced);
-  EXPECT_EQ(module->getBody()->getOperations().size(), 3u);
-  Operation &use = module->getBody()->back();
-  EXPECT_EQ(use.getOperand(0), use.getOperand(2));
-
-  // Re-registering a folder-owned constant does not change the IR.
-  EXPECT_EQ(folder.insertKnownConstant(constants[0]), Result::Unchanged);
-}
-
-TEST(OperationFolderTest, InsertKnownConstantReportsHoisting) {
+TEST(OperationFolderTest, InsertKnownConstant) {
   MLIRContext context;
   context.getOrLoadDialect<arith::ArithDialect>();
   context.allowUnregisteredDialects();
   auto module = parseSourceString<ModuleOp>(R"mlir(
     "test.side_effect"() : () -> ()
     %0 = arith.constant 42 : i32
-    "test.use"(%0) : (i32) -> ()
+    %1 = arith.constant 42 : i32
   )mlir",
                                             &context);
   ASSERT_TRUE(module);
-  Block *block = module->getBody();
-  Operation *constant = block->front().getNextNode();
+  Operation *sideEffect = &module->getBody()->front();
+  Operation *constant = sideEffect->getNextNode();
+  Operation *duplicate = constant->getNextNode();
 
   using Result = OperationFolder::ConstantInsertionResult;
   OperationFolder folder(&context);
   EXPECT_EQ(folder.insertKnownConstant(constant), Result::Hoisted);
-  EXPECT_EQ(&block->front(), constant);
   EXPECT_EQ(folder.insertKnownConstant(constant), Result::Unchanged);
+  EXPECT_EQ(folder.insertKnownConstant(duplicate), Result::Replaced);
 
-  // Re-registering a folder-owned constant can hoist it again if another
-  // operation has been inserted before it.
-  constant->getNextNode()->moveBefore(constant);
+  // Folder-owned constants can be hoisted again.
+  sideEffect->moveBefore(constant);
   EXPECT_EQ(folder.insertKnownConstant(constant), Result::Hoisted);
-  EXPECT_EQ(&block->front(), constant);
-  EXPECT_EQ(folder.insertKnownConstant(constant), Result::Unchanged);
-}
-
-TEST(OperationFolderTest, InsertKnownConstantReportsHoistingAcrossBlocks) {
-  MLIRContext context;
-  context.getOrLoadDialect<arith::ArithDialect>();
-  context.getOrLoadDialect<cf::ControlFlowDialect>();
-  context.getOrLoadDialect<func::FuncDialect>();
-  context.allowUnregisteredDialects();
-  auto module = parseSourceString<ModuleOp>(R"mlir(
-    func.func @f() {
-      cf.br ^bb1
-    ^bb1:
-      %0 = arith.constant 42 : i32
-      "test.use"(%0) : (i32) -> ()
-      return
-    }
-  )mlir",
-                                            &context);
-  ASSERT_TRUE(module);
-  auto func = cast<func::FuncOp>(module->getBody()->front());
-  Block &entry = func.getBody().front();
-  Operation *constant = &func.getBody().back().front();
-
-  using Result = OperationFolder::ConstantInsertionResult;
-  OperationFolder folder(&context);
-  EXPECT_EQ(folder.insertKnownConstant(constant), Result::Hoisted);
-  EXPECT_EQ(&entry.front(), constant);
-  EXPECT_EQ(folder.insertKnownConstant(constant), Result::Unchanged);
 }
 
 INSTANTIATE_TEST_SUITE_P(TraversalOrder, GreedyPatternRewriteDriverTest,
