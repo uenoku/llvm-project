@@ -111,7 +111,7 @@ TEST_P(GreedyPatternRewriteDriverTest, NoIterations) {
   EXPECT_EQ(module->getBody()->getOperations().size(), 3u);
 }
 
-TEST(OperationFolderTest, InsertKnownConstantAccumulatesChanges) {
+TEST(OperationFolderTest, InsertKnownConstantReportsReplacement) {
   MLIRContext context;
   context.getOrLoadDialect<arith::ArithDialect>();
   context.allowUnregisteredDialects();
@@ -127,23 +127,73 @@ TEST(OperationFolderTest, InsertKnownConstantAccumulatesChanges) {
   module->walk([&](arith::ConstantOp op) { constants.push_back(op); });
   ASSERT_EQ(constants.size(), 3u);
 
+  using Result = OperationFolder::ConstantInsertionResult;
   OperationFolder folder(&context);
-  bool changed = false;
-  EXPECT_TRUE(folder.insertKnownConstant(constants[0], {}, &changed));
-  EXPECT_FALSE(changed);
+  EXPECT_EQ(folder.insertKnownConstant(constants[0]), Result::Unchanged);
+  EXPECT_EQ(folder.insertKnownConstant(constants[1]), Result::Unchanged);
+  EXPECT_EQ(folder.insertKnownConstant(constants[2]), Result::Replaced);
+  EXPECT_EQ(module->getBody()->getOperations().size(), 3u);
+  Operation &use = module->getBody()->back();
+  EXPECT_EQ(use.getOperand(0), use.getOperand(2));
 
-  // Registering a constant without moving it must not clear an earlier change.
-  changed = true;
-  EXPECT_TRUE(folder.insertKnownConstant(constants[1], {}, &changed));
-  EXPECT_TRUE(changed);
+  // Re-registering a folder-owned constant does not change the IR.
+  EXPECT_EQ(folder.insertKnownConstant(constants[0]), Result::Unchanged);
+}
 
-  changed = false;
-  EXPECT_FALSE(folder.insertKnownConstant(constants[2], {}, &changed));
-  EXPECT_TRUE(changed);
+TEST(OperationFolderTest, InsertKnownConstantReportsHoisting) {
+  MLIRContext context;
+  context.getOrLoadDialect<arith::ArithDialect>();
+  context.allowUnregisteredDialects();
+  auto module = parseSourceString<ModuleOp>(R"mlir(
+    "test.side_effect"() : () -> ()
+    %0 = arith.constant 42 : i32
+    "test.use"(%0) : (i32) -> ()
+  )mlir",
+                                            &context);
+  ASSERT_TRUE(module);
+  Block *block = module->getBody();
+  Operation *constant = block->front().getNextNode();
 
-  // Re-registering a folder-owned constant must preserve the CSE change too.
-  EXPECT_TRUE(folder.insertKnownConstant(constants[0], {}, &changed));
-  EXPECT_TRUE(changed);
+  using Result = OperationFolder::ConstantInsertionResult;
+  OperationFolder folder(&context);
+  EXPECT_EQ(folder.insertKnownConstant(constant), Result::Hoisted);
+  EXPECT_EQ(&block->front(), constant);
+  EXPECT_EQ(folder.insertKnownConstant(constant), Result::Unchanged);
+
+  // Re-registering a folder-owned constant can hoist it again if another
+  // operation has been inserted before it.
+  constant->getNextNode()->moveBefore(constant);
+  EXPECT_EQ(folder.insertKnownConstant(constant), Result::Hoisted);
+  EXPECT_EQ(&block->front(), constant);
+  EXPECT_EQ(folder.insertKnownConstant(constant), Result::Unchanged);
+}
+
+TEST(OperationFolderTest, InsertKnownConstantReportsHoistingAcrossBlocks) {
+  MLIRContext context;
+  context.getOrLoadDialect<arith::ArithDialect>();
+  context.getOrLoadDialect<cf::ControlFlowDialect>();
+  context.getOrLoadDialect<func::FuncDialect>();
+  context.allowUnregisteredDialects();
+  auto module = parseSourceString<ModuleOp>(R"mlir(
+    func.func @f() {
+      cf.br ^bb1
+    ^bb1:
+      %0 = arith.constant 42 : i32
+      "test.use"(%0) : (i32) -> ()
+      return
+    }
+  )mlir",
+                                            &context);
+  ASSERT_TRUE(module);
+  auto func = cast<func::FuncOp>(module->getBody()->front());
+  Block &entry = func.getBody().front();
+  Operation *constant = &func.getBody().back().front();
+
+  using Result = OperationFolder::ConstantInsertionResult;
+  OperationFolder folder(&context);
+  EXPECT_EQ(folder.insertKnownConstant(constant), Result::Hoisted);
+  EXPECT_EQ(&entry.front(), constant);
+  EXPECT_EQ(folder.insertKnownConstant(constant), Result::Unchanged);
 }
 
 INSTANTIATE_TEST_SUITE_P(TraversalOrder, GreedyPatternRewriteDriverTest,

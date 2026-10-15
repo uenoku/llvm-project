@@ -896,7 +896,10 @@ LogicalResult RegionPatternRewriteDriver::simplify(bool *changed) && {
       Attribute constValue;
       if (!matchPattern(op, m_Constant(&constValue)))
         return false;
-      return !folder.insertKnownConstant(op, constValue, &continueRewrites);
+      auto result = folder.insertKnownConstant(op, constValue);
+      continueRewrites |=
+          result != OperationFolder::ConstantInsertionResult::Unchanged;
+      return result == OperationFolder::ConstantInsertionResult::Replaced;
     };
 
     if (!config.getUseTopDownTraversal()) {
