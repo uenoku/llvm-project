@@ -173,31 +173,6 @@ protected:
 };
 #endif // MLIR_ENABLE_EXPENSIVE_PATTERN_API_CHECKS
 
-#ifdef EXPENSIVE_CHECKS
-/// Check that the driver does not report unchanged IR when it actually changed.
-/// Unlike the pattern API checks, this covers the entire greedy rewrite,
-/// including constant hoisting, CSE and region simplification.
-struct GreedyRewriteChangeCheck {
-  explicit GreedyRewriteChangeCheck(Region *scope)
-      : topLevel(scope ? scope->getParentOp() : nullptr) {
-    if (topLevel)
-      before.emplace(topLevel);
-  }
-
-  void check(bool changed) const {
-    // A rewrite can change the IR and subsequently restore it, so only check
-    // that reporting no change implies that the finger print is unchanged.
-    if (!changed && topLevel && *before != OperationFingerPrint(topLevel))
-      llvm::report_fatal_error(
-          "greedy pattern rewriter changed IR but did not report a change");
-  }
-
-private:
-  Operation *topLevel;
-  std::optional<OperationFingerPrint> before;
-};
-#endif // EXPENSIVE_CHECKS
-
 #ifndef NDEBUG
 static Operation *getDumpRootOp(Operation *op) {
   // Dump the parent op so that materialized constants are visible. If the op
@@ -865,9 +840,6 @@ private:
 } // namespace
 
 LogicalResult RegionPatternRewriteDriver::simplify(bool *changed) && {
-#ifdef EXPENSIVE_CHECKS
-  GreedyRewriteChangeCheck rewriteCheck(config.getScope());
-#endif // EXPENSIVE_CHECKS
   bool continueRewrites = false;
   bool anyChanged = false;
   int64_t iteration = 0;
@@ -877,10 +849,6 @@ LogicalResult RegionPatternRewriteDriver::simplify(bool *changed) && {
     if (++iteration > config.getMaxIterations() &&
         config.getMaxIterations() != GreedyRewriteConfig::kNoLimit)
       break;
-
-#ifdef EXPENSIVE_CHECKS
-    GreedyRewriteChangeCheck iterationCheck(config.getScope());
-#endif // EXPENSIVE_CHECKS
 
     // New iteration: start with an empty worklist. Track changes made while
     // populating the worklist as well as changes made while processing it.
@@ -956,15 +924,9 @@ LogicalResult RegionPatternRewriteDriver::simplify(bool *changed) && {
           }
         },
         {&region}, iteration);
-#ifdef EXPENSIVE_CHECKS
-    iterationCheck.check(continueRewrites);
-#endif // EXPENSIVE_CHECKS
     anyChanged |= continueRewrites;
   } while (continueRewrites);
 
-#ifdef EXPENSIVE_CHECKS
-  rewriteCheck.check(anyChanged);
-#endif // EXPENSIVE_CHECKS
   if (changed)
     *changed = anyChanged;
 
@@ -992,10 +954,26 @@ mlir::applyPatternsGreedily(Region &region,
         "greedy pattern rewriter input IR failed to verify");
 #endif // MLIR_ENABLE_EXPENSIVE_PATTERN_API_CHECKS
 
+#ifdef EXPENSIVE_CHECKS
+  OperationFingerPrint before(config.getScope()->getParentOp());
+  bool rewriteChanged;
+  if (!changed)
+    changed = &rewriteChanged;
+#endif // EXPENSIVE_CHECKS
+
   // Start the pattern driver.
   RegionPatternRewriteDriver driver(region.getContext(), patterns, config,
                                     region);
   LogicalResult converged = std::move(driver).simplify(changed);
+#ifdef EXPENSIVE_CHECKS
+  // Rewrites may restore the original IR, so only check that reporting no
+  // change implies an unchanged finger print. This covers the entire rewrite,
+  // including constant hoisting, CSE and region simplification.
+  if (!*changed &&
+      before != OperationFingerPrint(config.getScope()->getParentOp()))
+    llvm::report_fatal_error(
+        "greedy pattern rewriter changed IR but did not report a change");
+#endif // EXPENSIVE_CHECKS
   if (failed(converged))
     LDBG() << "The pattern rewrite did not converge after scanning "
            << config.getMaxIterations() << " times";
@@ -1049,18 +1027,12 @@ MultiOpPatternRewriteDriver::MultiOpPatternRewriteDriver(
 
 LogicalResult MultiOpPatternRewriteDriver::simplify(ArrayRef<Operation *> ops,
                                                     bool *changed) && {
-#ifdef EXPENSIVE_CHECKS
-  GreedyRewriteChangeCheck rewriteCheck(config.getScope());
-#endif // EXPENSIVE_CHECKS
   // Populate the initial worklist.
   for (Operation *op : ops)
     addSingleOpToWorklist(op);
 
   // Process ops on the worklist.
   bool result = processWorklist();
-#ifdef EXPENSIVE_CHECKS
-  rewriteCheck.check(result);
-#endif // EXPENSIVE_CHECKS
   if (changed)
     *changed = result;
 
@@ -1128,12 +1100,28 @@ LogicalResult mlir::applyOpPatternsGreedily(
         "greedy pattern rewriter input IR failed to verify");
 #endif // MLIR_ENABLE_EXPENSIVE_PATTERN_API_CHECKS
 
+#ifdef EXPENSIVE_CHECKS
+  std::optional<OperationFingerPrint> before;
+  if (config.getScope())
+    before.emplace(config.getScope()->getParentOp());
+  bool rewriteChanged;
+  if (!changed)
+    changed = &rewriteChanged;
+#endif // EXPENSIVE_CHECKS
+
   // Start the pattern driver.
   llvm::SmallDenseSet<Operation *, 4> surviving;
   MultiOpPatternRewriteDriver driver(ops.front()->getContext(), patterns,
                                      config, ops,
                                      allErased ? &surviving : nullptr);
   LogicalResult converged = std::move(driver).simplify(ops, changed);
+#ifdef EXPENSIVE_CHECKS
+  // As above, reporting a change does not imply a different finger print.
+  if (!*changed && before &&
+      *before != OperationFingerPrint(config.getScope()->getParentOp()))
+    llvm::report_fatal_error(
+        "greedy pattern rewriter changed IR but did not report a change");
+#endif // EXPENSIVE_CHECKS
   if (allErased)
     *allErased = surviving.empty();
   if (failed(converged))
